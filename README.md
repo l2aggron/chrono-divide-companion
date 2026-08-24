@@ -60,17 +60,6 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
   browser reports to a page at all, so the extension counts it at the WebGL
   calls that allocate it. It keeps its readings across a crash, so a tab that
   is killed can still say what it was holding.
-- **The panels above open on keys you set in the options page, and this README
-  does not print them.** A key named here would be right only until somebody
-  rebound it, and eventually wrong for everyone. What ships is `Alt` and a
-  right-hand letter, because the client's own default table leaves nothing else
-  genuinely free: a bare digit is its team select, `Shift` and `Ctrl` and `Alt`
-  on a digit are the other three team commands, and almost every bare letter is
-  a live order. `Alt`+letter is the one space it never uses. The letters are the
-  right hand's because the left one is spent: an open build grid takes the whole
-  `qwert`/`asdfg`/`zxcvb` block under every modifier, and the grid is the one
-  thing here whose keys this README does name — its layout **is** the
-  keyboard's. Which letter opens what is `DEFAULT_KEYS` in `src/companion.js`.
 - **No waiting on the lockstep.** The game applies an order a few network turns
   after the press, so an overlay that *read* the queue to decide what the next
   press meant would decide against a state it had already changed — and a
@@ -110,20 +99,13 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 - [Full map render](#full-map-render)
 - [Settings backup](#settings-backup)
 
-**How it works**
+**Installing it, and finding out what it did**
 
-- [Why an extension and not a CD mod](#why-an-extension-and-not-a-cd-mod)
-- [How it hooks in](#how-it-hooks-in)
-
-**Building it, and finding out what it did**
-
-- [Install (development)](#install-development)
-- [Packaging for the stores](#packaging-for-the-stores)
+- [Install](#install)
 - [Diagnosing it](#diagnosing-it)
 
 **Terms**
 
-- [Status](#status)
 - [Not affiliated, and what is whose](#not-affiliated-and-what-is-whose)
 - [Compatibility](#compatibility)
 
@@ -274,10 +256,6 @@ deliberately does not do:
 showed it. The deadline in `src/queue-predict.js` is a backstop picked without a
 measurement, and that is where the measurement to replace it comes from.
 
-`src/queue-predict.js` holds the whole of it with no client in it, so
-`node scripts/check-predict.mjs` exercises the reconciliation on snapshots
-written by hand — including the two-press pair above, which fails that check
-without the ledger.
 
 ## Build chords
 
@@ -487,10 +465,10 @@ fills the queue behind the head. It does nothing on the two building tabs, whose
 queues hold one item — there is never a second thing to jump.
 
 The prediction models the split exactly, entries and order included
-(`src/queue-predict.js`, and `node scripts/check-predict.mjs` has a row per
-shape). It has to: the ledger recognises its own action by the item list, so an
-algebra that merged the entries or inserted at the front would read every
-next-order as the client contradicting it and report a landed order as lost.
+(`src/queue-predict.js`). It has to: the ledger recognises its own action by
+the item list, so an algebra that merged the entries or inserted at the front
+would read every next-order as the client contradicting it and report a landed
+order as lost.
 
 So the whole scale on one hand: **tap** is one, **Shift** is five, **hold** is
 everything. And **Alt** turns any of the three from an order into a cancel.
@@ -502,8 +480,8 @@ document, because it is a default rather than a fact about the extension.
 
 *Off the block*, because an open grid spends every modifier on those fifteen
 letters: bare orders, Shift orders five, Alt cancels, and Ctrl queues next. A
-fixed hotkey there would stop working whenever a grid was up, so
-`scripts/check-chords.mjs` refuses one on a slot key or on Ctrl.
+fixed hotkey there would stop working whenever a grid was up, so a slot key and
+Ctrl are both refused as bindings.
 
 *Under `Alt`*, because it is the emptiest space the client has. That is read out
 of the shipped `[Hotkey]` table in `langmd.mix` plus the seven defaults
@@ -673,8 +651,6 @@ and the options page marks such a binding.
 `BuildCat=Combat` sends a building to the Armory queue, which is the Defence tab
 — so the superweapons, the Gap Generator, the SpySat Uplink and the Psychic
 Sensor are on `ww`, not `qq`, however much they read like base buildings.
-`scripts/check-chords.mjs` reads `BuildCat` out of the generated rules table and
-refuses a layout that disagrees with the client.
 
 **One key can hold a country's two names for one thing, and you never see it.**
 `AMRADR`'s rules section is literally `Name:GAAIRC` — the American Airforce
@@ -703,8 +679,7 @@ superweapons, MCV, heavy tank, the heroes — and `g` ends the section, which is
 where the **shipyard** sits rather than at its tech level, being the one
 building a land map makes pointless. **`zxcvb` on the units grid is the sea**:
 all five keys, attack ship and transport and capital ship on the same three of
-them. `scripts/check-chords.mjs` refuses a layout that floats something above
-that row or parks something dry in it.
+them.
 
 **Country units are on the key that ends their group** — `d` on the infantry
 grid, after the specialists and before the heroes, and `f` on the units grid,
@@ -854,11 +829,10 @@ binding through the same `bindingId`. The one thing it cannot carry is a
 can never be in that table, and a mouse binding reaches a client command
 through `KeyboardHandler#executeCommand` exactly as a key does.
 
-**What was measured, and what was not.** A probe in the dev build
-(`src/debug-hud.js`, and `scripts/probe-mouse-buttons.js` for a browser without
-it) recorded buttons 3 and 4 arriving *while the client held pointer lock*,
-carrying their modifiers, with `preventDefault` keeping the browser from
-navigating. What that run did not exercise is a **bare** Back or Forward — the
+**What was measured, and what was not.** `scripts/probe-mouse-buttons.js`,
+pasted into a console, recorded buttons 3 and 4 arriving *while the client held
+pointer lock*, carrying their modifiers, with `preventDefault` keeping the
+browser from navigating. What that run did not exercise is a **bare** Back or Forward — the
 press a browser would actually navigate on. The options page marks that one
 combination, the extension swallows the whole click rather than only its
 `mousedown` (a browser acts on back/forward at the *end* of a click), and the
@@ -894,8 +868,7 @@ the outside:
 It answers all five. `__cdc.build("KeyQ")` also says what that key is
 bound to here and what the client itself has on it. Two of the five are known to
 happen: bindings stored and never pushed to a running tab, and client modules
-imported and then not kept — the second is guarded by
-`scripts/check-modules.mjs`.
+imported and then not kept.
 
 **And `__cdc.chords()` is the same answer for a chord that does not open.** It
 names which prefix resolved to which section and out of whose table — the
@@ -994,14 +967,6 @@ about nothing.
 `__cdc.probe()` reports whether the hook took, so a dead hook is visible without
 starting a match at all.
 
-`node scripts/check-net.mjs` runs the whole panel without a browser or a match —
-the section is sliced out of `companion.js` and driven against a stub client and
-a stub DOM. It pins the bands against the client's own thresholds. It pins the two ways the
-order latency can lie: timing a turn that was never sent, and a map that grows
-one entry per turn. It pins the age label, and which ping interval is asked for
-in each of the three states. And it pins that detaching a finished match
-releases all five subscriptions.
-
 ## Memory readout
 
 **It has a key in a match, and it opens itself.** Players report the tab crashing,
@@ -1062,15 +1027,6 @@ can say what the last session ended at, in the log and on the panel itself.
 `__cdc.memTrace()` in the console is the whole curve, which is the useful thing
 to ask a player for.
 
-`node scripts/check-memory.mjs` drives both files as themselves — the meter
-against a stub GL context, the rule against an injected clock and store. It
-pins every branch of the byte estimate against a number computed by hand,
-including the six-argument `texImage2D` form the client's sprite path actually
-uses, and both alarms including which of them outranks the other. It has
-already earned its keep: it caught the trend understating a 12 MB/min climb as
-9, because the medians it compares sit at the centres of their windows and the
-denominator was measuring end to end.
-
 ## Player colours
 
 **Options page → Settings → Player colours.** Off by default. Ticked, it
@@ -1117,9 +1073,7 @@ red. So the options page offers a table harvested from the client instead of
 colours of its own. It comes off the same trip that reads the build roster, and
 it fills in when you **play a match**, not when you open the client. A name
 this client does not define is skipped with a line in the log rather than
-guessed at. `node scripts/check-colours.mjs` asserts the section never
-constructs a colour, along with the ordinals, the observer and empty-table
-cases, and that the alliance watch is released with the match it belongs to.
+guessed at.
 
 **It is local render state and nothing else.** Colour is absent from
 `Player#getHash()`, which is what the lockstep compares, and nothing sends it.
@@ -1182,10 +1136,9 @@ at all, not in any form.
 only, no theater**, so it costs no download and answers for a map whose art this
 client has never fetched. It travels with the *card* rather than with the
 render, because a render is skipped when the stored one is current and the index
-would then never be written for any map already rendered. `scripts/check-survey.mjs`
-runs it over a hand-built pre-captured map with the client faked, because a
-miscount here is not a wrong pixel the next render corrects — it is a wrong fact
-that outlives the client that produced it.
+would then never be written for any map already rendered. A miscount here is
+not a wrong pixel the next render corrects — it is a wrong fact that outlives
+the client that produced it.
 
 Storing the map **file** instead was considered and dropped: it is hundreds of
 kilobytes a map, and it would not remove the engine from the loop anyway, since
@@ -1306,11 +1259,6 @@ dots. A map that marks its spawns draws the same marker at each one, and terrain
 does not do that. Vivid means bright with a wide gap between its strongest and
 weakest channel, so sand — bright, barely saturated — is not it.
 
-`scripts/check-spawn-marks.mjs` runs the detector against bitmaps built for the
-purpose: bare terrain, desert, a patch of rock beside one spawn, matching
-markers, mismatched ones, a marker at one spawn only, and single stray pixels.
-It also drives the whole preview path, to check that a map which marks its
-spawns comes back with no dots and no toggle.
 
 **Cards already in the catalogue keep the picture they were stored with.** The
 preview is drawn in the game tab and stored whole, so nothing here can redraw
@@ -1412,11 +1360,11 @@ the paths. The start square's number is black or white by the player colour's
 luma — a fixed ink disappears on player 6 (white) at one end or player 1 (blue)
 at the other.
 
-The glyphs themselves are `src/glyphs.js`, not the renderer: three places draw
-them and only one can load the renderer — the render in the game tab, the
-options page compositing badges over a full render that has none baked in, and
-`scripts/glyph-sheet.mjs`. The full render stores *where* its badges go, as
-fractions of the picture, and whoever shows it paints them.
+The glyphs themselves are `src/glyphs.js`, not the renderer, because the two
+places that draw them do not both have one: the render in the game tab, and the
+options page compositing badges over a full render that has none baked in. The
+full render stores *where* its badges go, as fractions of the picture, and
+whoever shows it paints them.
 
 `__cdcHq.list()` prints the glyph each structure gets, so a tech building this
 build has no icon for shows up as `marker` rather than disappearing into the
@@ -1424,12 +1372,6 @@ map. Add it to `BUILDING_ICONS` in `src/glyphs.js`. Both styles are
 `MARK_STYLES` in the same file, and `render({ sizes: { x: { width: 600, marks:
 "compact" } } })` renders any width in either.
 
-`node scripts/glyph-sheet.mjs` writes `scripts/glyph-sheet.html`: every
-pictogram drawn by the shipped code, big enough to judge and again at the real
-18px in white and every player colour. `?only=<glyph>` blows one up to 340px,
-where a corner or a tangent that 96px hides is visible. Regenerate after
-touching `ICON_GLYPHS` — a glyph is a shape, and a shape is looked at, not
-reasoned about.
 
 `grid: true` draws the cell grid over the render — the measuring stick when
 something looks misplaced.
@@ -1543,9 +1485,8 @@ ever something to do by hand — if a run needs a client, it gets one. (A replay
 re-run does not wait for that: it holds the frame pump below for the client's
 boot, and boots where it stands. A render run nudges.) **Only a tab the
 worker opened is ever closed** — the ids live in `chrome.storage.session`,
-because an MV3 worker is torn down while idle and a run takes minutes, and
-`scripts/check-background.mjs` is a test of that one rule. A run in a tab you
-opened yourself leaves it exactly where it was.
+because an MV3 worker is torn down while idle and a run takes minutes. A run in
+a tab you opened yourself leaves it exactly where it was.
 
 The limits are worth knowing:
 
@@ -2037,7 +1978,6 @@ The mechanics, and why each piece is the way it is:
 | the spawn filter | the same one, plus an id seen once: `ObjectSpawn` fires again for an object that leaves the map and returns, and it was built one time |
 | the roster | captured once at the start, because `getCombatants()` drops a player the moment they are defeated, which is exactly whose losses you were reading |
 | `src/frames.js` | the frame pump — a run holds it for the client's *boot*, and gives it back the moment the match is playing (below) |
-| `scripts/fixtures/sim-5a41749b.json` | a real harvest, committed, so `check-replay.mjs` can assert the merge without a browser |
 
 It is also the most fragile thing in the extension: the parser only needs the
 file format, while this needs the client's internals to keep their names.
@@ -2057,7 +1997,7 @@ itself while it is not. It is **inert until a job holds it** — a tab you are
 playing in has the browser's own frames and nothing else. The clock under it is a
 worker's, because a worker's timers are not clamped with the page. Where a page's
 policy refuses a blob worker it falls back to a `MessageChannel` loop and says so
-in the log. `node scripts/check-frames.mjs` drives the shipped file through both.
+in the log.
 
 **The run tells the tab it is visible, holds the frames, and paces a long
 match** — three parts of one thing, and it took five dead tabs to find the first.
@@ -2160,8 +2100,8 @@ gone: the ceiling here is 4192 MB and the tab died at a quarter of it, so
 whatever kills the tab is not that ceiling.
 
 Every progress write carries the last sixty readings of the heap against the tick
-they were taken at, so a run that dies anyway leaves the shape of the climb behind
-it (`node scripts/read-storage.mjs sim`).
+they were taken at, so a run that dies anyway leaves the shape of the climb
+behind it.
 
 **And a run saves as it goes.** The harvest is handed over to be stored every
 1.5 seconds — every half second through the last tenth of the match — under the
@@ -2225,34 +2165,10 @@ What the site cannot do, and why:
 
 Names come from the harvested object table: a replay names an object by its
 **ordinal** in the rules type lists, nothing served over the network states
-those lists, and the client that recorded the replay is the one that can. `node
-scripts/check-replay.mjs` decodes a committed fixture against the table in
-`scripts/fixtures/` and asserts the whole match — tiles included — because a
-shape test would pass with every id off by one. The format itself — byte
-layout, enums and the tick rate — was read out of the client's own
-`network/gameopt/Parser` and verified against eight ladder replays.
+those lists, and the client that recorded the replay is the one that can. The
+format itself — byte layout, enums and the tick rate — was read out of the
+client's own `network/gameopt/Parser` and verified against eight ladder replays.
 `src/replay.js` carries it.
-
-### Sprite offsets
-
-Terrain, ore borders and start blocks are placed by arithmetic read out of the
-client. Sprites are not: the client positions them through 3D billboard geometry
-that does not reduce to flat pixel maths, so what is left over is measured
-against the running game, per sprite type — `SPRITE_FIX` at the top of
-`src/hq-preview.js`. Fences sit low where trees sit high, so it is a table
-rather than a constant.
-
-What is in the source is the **shipped default**, and `spriteFix` in the
-extension's storage overrides it — so a client update that moves sprites is
-answered by re-measuring on the machine that noticed rather than by waiting for
-a build.
-Renders already stored keep the offsets they were drawn with: `RENDERER_VERSION`
-stamps a build, not a number the user dials, so re-rendering is a deliberate act.
-
-A few objects do not follow their type — `SPRITE_FIX_BY_NAME` keys a correction
-to a single object name for those, and `__cdcHq.list()` prints the names on the
-loaded map. Both tables are read by the render through the bridge, so a
-measurement made on one machine reaches its renders without a build.
 
 ## Settings backup
 
@@ -2335,110 +2251,11 @@ back what was actually there rather than what this page last happened to read.
 It outlives the page, because an import that reloads the game tab is one you may
 want to undo minutes later.
 
-### The one thing an import cannot promise
-
-A backup names commands, and the client it lands on decides what a command is
-called. A newer client that has renamed one has no place to put that line — so
-it is **named in the report and not written**, rather than dropped in silence or
-written back as a name the client will warn about on every boot. Everything the
-client does recognise still lands. Anything that is not one of the two hotkey
-file names, or is a `_r_*` key outside the list above, is refused outright: a
-file picker will hand over anything at all.
-
-## Why an extension and not a CD mod
-
-The official [mod SDK](https://github.com/chronodivide/mod-sdk) covers `rules.ini`,
-`art.ini`, maps, the splash PNG and the menu video. It explicitly **cannot**
-change UI/HTML/CSS and cannot ship scripts. Everything here is UI, so it lives
-browser-side.
-
-This is an unofficial, client-only extension. Most of it is an overlay: it
-renders extra information from state the client already holds, and adds nothing
-to what the client sends.
-
-**Build hotkeys and chords are the exception, and they are worth stating
-plainly.** A bound key pushes a queue order into the client's own action queue
-— the same order, serialised the same way, that clicking the cameo sends. So
-the extension does reach gameplay at that one point: it gives the sidebar a
-keyboard, which RA2 and Chrono Divide never had. A chord is the same press
-reached through two keys instead of one, and Shift on a unit is the client's
-own five — the quantity a shift-click has always sent. It does not decide what
-to build, place anything, read anything the game hides from you, or act while
-you are not pressing a key. What that is worth on a ladder whose
-[rules](https://chronodivide.com/ladder-rules.html) ban "any kind of cheats"
-without naming third-party tools either way is a judgement the person
-installing it makes. The extension states what it does rather than deciding for
-them.
-
-## How it hooks in
-
-The CD client is a React DOM UI on top of a three.js canvas, loaded through
-SystemJS with **named internal modules** (`gui/screen/game/loadingScreen/LoadingScreen`,
-`game/map/MapFile`, …). Two consequences:
-
-1. The loading screen is real DOM (`.loading-screen`, `.player-status`,
-   `.player-country-icon`, `.map-name`) — injectable and observable.
-2. `System.import("<module name>")` reaches the client's own classes, so the
-   extension reuses the client's decoders instead of reimplementing them.
-
-Both require page-world access, so the content script is declared
-`"world": "MAIN"`. Everything the extension knows about the client's internals
-was read out of its own bundle at v0.83.3, and the module names and call shapes
-are quoted in the source files that use them.
-
-## Install (development)
+## Install
 
 1. `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** → select this repo's root (or `dist/<name>-<version>/`,
-   which is what the stores get — see **Packaging for the stores**).
+2. **Load unpacked** → select this repo's root.
 3. Open <https://game.chronodivide.com/> and start a game.
-
-## Packaging for the stores
-
-```
-node scripts/gen-icon.mjs     # icons/icon-{16,32,48,128}.png + store/logo-300.png
-node scripts/pack.mjs         # dist/<name>-<version>/ + dist/<name>-<version>.zip
-```
-
-Upload the zip. `dist/<name>-<version>/` is the same file list unpacked, so
-**Load unpacked** on it tests exactly what the store gets rather than what the
-repo happens to contain.
-
-**The package is an allowlist** — `manifest.json`, `src/`, `icons/`, nothing
-else. The extension's root is the repository's root, so a `zip -r .` here would
-ship the whole working repository — notes, records, generator inputs, everything
-that is not the extension — into a public listing. That is a disclosure rather
-than a size problem, and no `.gitignore` rule catches it because those files are
-tracked on purpose.
-
-Three guards fail the build rather than warn:
-
-| guard | what it catches |
-|---|---|
-| manifest sweep | a path the manifest names that is not in the package — `load unpacked` substitutes a placeholder icon, the store rejects the upload |
-| link sweep | a `src`/`href` on the options page that does not resolve, or that is absolute |
-| leak sweep | a Windows user directory, `AppData`, the operator's user name, an email, an extension id, a `Program Files` path — the same list the site build sweeps its own output for |
-
-`--dry` runs all three and writes nothing. `--force` overwrites a build of a
-version already packaged, which is otherwise refused because neither store lets
-a version be re-uploaded.
-
-### The version
-
-`manifest.json` carries it and nothing else does. **A feature is a minor, a fix
-with no visible change is a patch**, and every feature bumps in its own commit —
-the version is the only build identity there is, and `src/companion.js` prints
-it in the in-game load line precisely so *did my reload take?* has an answer.
-
-The icon is one SVG in `scripts/gen-icon.mjs`, rendered at each size rather than
-drawn large and downscaled — a 2px stroke downscaled to 16px is grey fog.
-`--check` re-renders to a temp directory and diffs, so a committed PNG that no
-longer matches the shape is a failure rather than a surprise.
-
-**Still owed to the listings, and not automatable here:** screenshots, the
-per-permission justifications, the single-purpose statement, and the data-usage
-disclosure (the extension stores everything in `chrome.storage.local` and
-transmits nothing, but the form is mandatory either way).
 
 ## Diagnosing it
 
@@ -2468,38 +2285,9 @@ Two sources feed it: the game tab's own narration, and, from the half that owns
 storage, **every write — attempted, then stored or failed.** The attempt is
 logged before the write starts, and that is the whole point. A write that fails
 and a write that is never started look identical afterwards, and one of those
-is what left a map with a render and no card. `scripts/check-log.mjs` is the
-test of both rules, including that the log is handed over *before* the run's
-tab is allowed to close.
-
-The worker owns the key (`background.js`, `appendLog`), because three halves
-write to it and a key with three independent read-modify-write cycles loses
-entries.
-
-### Reading it from a shell
-
-```
-node scripts/read-storage.mjs            # every key in the extension's storage
-node scripts/read-storage.mjs log        # the log, one line per entry
-node scripts/read-storage.mjs pools bulk # any key, as JSON
-```
-
-`chrome.storage.local` is a LevelDB in the browser profile, and that script
-reads it **while the browser is running** — the tables in place, the
-write-ahead log through a copy. It finds the profile itself by looking for an
-unpacked extension loaded from this repo, so there is no id to keep up to date.
-
-This is what makes the log worth having for someone who is not sitting at the
-machine: a question about what the extension did is answered from a terminal,
-with no browser, no devtools and nothing to copy out by hand. It has no
-dependencies — snappy and the sstable format are implemented in the script,
-because this repo has no `package.json` and neither is available to it.
-
-## Status
-
-Early. Every measured claim in this README gives its number and the date it was
-taken. Anything stated without one is a design intention rather than a
-measurement.
+is what left a map with a render and no card. The log is handed over *before*
+the run's tab is allowed to close, so a run that ended badly still has its
+narration.
 
 ## Not affiliated, and what is whose
 
