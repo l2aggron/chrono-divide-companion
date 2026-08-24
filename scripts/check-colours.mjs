@@ -395,7 +395,10 @@ function makeGame({ allied = [], colours = ["Gold", "DarkBlue", "DarkRed", "Mage
   // harvested there is a table whose own instructions do not work. The roster
   // has had this second attempt since 0.53.x; the colour table shipped without
   // one in 0.97.0.
-  const atMatchStart = /renderQueues\(\);[\s\S]{0,800}?return originalInit\.apply/.exec(companion);
+  // The window is how this locates the hook, not part of what it asserts, so it
+  // carries slack: the hook grows (a third harvested table was added to it in
+  // 0.102.0) and this repo's CRLF checkout costs a character a line on top.
+  const atMatchStart = /renderQueues\(\);[\s\S]{0,1200}?originalInit\.apply/.exec(companion);
   check(
     "both harvested tables get their second attempt at match start",
     !!atMatchStart && /sendRoster\(\);/.test(atMatchStart[0]) && /sendColours\(\);/.test(atMatchStart[0]),

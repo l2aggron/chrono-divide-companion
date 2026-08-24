@@ -29,11 +29,15 @@
   const buildListEl = document.getElementById("buildList");
   const buildPickEl = document.getElementById("buildPick");
   const buildAddEl = document.getElementById("buildAdd");
+  const commandListEl = document.getElementById("commandList");
+  const commandPickEl = document.getElementById("commandPick");
+  const commandAddEl = document.getElementById("commandAdd");
   const prefOriginalEl = document.getElementById("prefOriginal");
   const prefFullIconsEl = document.getElementById("prefFullIcons");
   const prefAutoRenderEl = document.getElementById("prefAutoRender");
   const prefSidebarKeysEl = document.getElementById("prefSidebarKeys");
   const prefChordSingleEl = document.getElementById("prefChordSingle");
+  const prefChordBuildableEl = document.getElementById("prefChordBuildable");
   const prefGrabTabKeysEl = document.getElementById("prefGrabTabKeys");
   const prefFullscreenEnterEl = document.getElementById("prefFullscreenEnter");
   const prefMenuOffEscapeEl = document.getElementById("prefMenuOffEscape");
@@ -123,19 +127,21 @@
   const MAP_FILE = (window.__cdcLadder && window.__cdcLadder.MAP_FILE) || /(?!)/;
 
   // The game's own copy of this table is the one with the reasoning on it (see
-  // DEFAULT_KEYS in src/companion.js). The short of it: the digits are the only
-  // keys left once the chord grid's block and the right half of a split keyboard
-  // are both excluded, and a bare digit is two keypresses where Alt+digit is
-  // three. The cost is the game's own team select, which the author rebound.
+  // DEFAULT_KEYS in src/companion.js). The short of it: `Alt`+letter is the only
+  // space the client's own default table leaves genuinely empty, and the right
+  // hand is the only hand available, because an open chord grid spends the
+  // `qwert`/`asdfg`/`zxcvb` block — the left hand — under every modifier.
+  // The bare digits this replaced were the client's team select.
   // scripts/check-options.mjs fails if the two copies drift.
   const DEFAULT_KEYS = {
-    overlay: { code: "Digit1", keyCode: 49, alt: false, shift: false, ctrl: false, label: "1" },
-    queues: { code: "Digit2", keyCode: 50, alt: false, shift: false, ctrl: false, label: "2" },
-    hqSwap: { code: "Digit3", keyCode: 51, alt: false, shift: false, ctrl: false, label: "3" },
-    hqFull: { code: "Digit4", keyCode: 52, alt: false, shift: false, ctrl: false, label: "4" },
-    menu: { code: "Digit5", keyCode: 53, alt: false, shift: false, ctrl: false, label: "5" },
-    debug: { code: "Digit6", keyCode: 54, alt: false, shift: false, ctrl: false, label: "6" },
-    net: { code: "Digit7", keyCode: 55, alt: false, shift: false, ctrl: false, label: "7" },
+    overlay: { code: "KeyO", keyCode: 79, alt: true, shift: false, ctrl: false, label: "Alt+O" },
+    queues: { code: "KeyP", keyCode: 80, alt: true, shift: false, ctrl: false, label: "Alt+P" },
+    hqSwap: { code: "KeyI", keyCode: 73, alt: true, shift: false, ctrl: false, label: "Alt+I" },
+    hqFull: { code: "KeyU", keyCode: 85, alt: true, shift: false, ctrl: false, label: "Alt+U" },
+    menu: { code: "KeyM", keyCode: 77, alt: true, shift: false, ctrl: false, label: "Alt+M" },
+    debug: { code: "KeyJ", keyCode: 74, alt: true, shift: false, ctrl: false, label: "Alt+J" },
+    net: { code: "KeyN", keyCode: 78, alt: true, shift: false, ctrl: false, label: "Alt+N" },
+    memory: { code: "KeyK", keyCode: 75, alt: true, shift: false, ctrl: false, label: "Alt+K" },
   };
 
   const KEY_LABELS = {
@@ -146,6 +152,7 @@
     hqFull: "Render over the game",
     queues: "Production panel",
     net: "Net readout",
+    memory: "Memory readout",
   };
 
   /**
@@ -195,6 +202,18 @@
       "menu or the loading screen is up, and this panel does not ask for them " +
       "itself. While it is open the game pings the server every second instead " +
       "of every ten, which is exactly what the game does with its own panel up.",
+    memory:
+      "What this tab is holding: the page's own memory against the ceiling the " +
+      "browser sets for it, and the graphics memory underneath — textures and " +
+      "buffers, which is where a long match actually accumulates and which no " +
+      "browser reports to a page. **It opens itself** when the page heap nears " +
+      "its limit or the graphics context is lost, the second of which is the " +
+      "blank screen some players see before the tab dies. It also keeps the " +
+      "last quarter of an hour of readings across a crash, so a tab that is " +
+      "killed can still say what it was holding — that report is " +
+      "`__cdc.memTrace()` in the console. The graphics figures are an estimate " +
+      "of what was uploaded, not a reading from the driver; their shape over a " +
+      "match is what means something, not their exact value.",
   };
 
   /**
@@ -212,6 +231,7 @@
     captureSample: false, // the alignment panel's next run, set on its own tab
     sidebarKeys: true, // in game: the chord keys drawn on the sidebar itself
     chordSinglePress: false, // in game: one press of a tab key opens the grid
+    chordOnlyBuildable: false, // in game: the grid draws only what can be ordered now
     grabTabKeys: true, // in game: the tab keys are ours while it is fullscreen
     fullscreenOnEnter: true, // in game: the client's Alt+F fullscreen moves to Alt+Enter
     menuOffEscape: true, // in game: the menu leaves Escape for a key of ours
@@ -243,6 +263,17 @@
   // src/build-chords.js ships, which is what makes a fresh install useful
   // without visiting this panel at all.
   let chords = {};
+  // [{ command, key }], keys of ours that fire commands of the client's.
+  // Written here and read by the game tab, exactly as `builds` above — and the
+  // list they are chosen from, `commands` below, comes back the other way for
+  // the same reason the roster does.
+  let commandKeys = [];
+  // { version, at, items: ["CenterBase", …] } — which commands the client
+  // actually registers, harvested in the game tab off its live KeyboardHandler.
+  // Not the KeyCommandType enum: that lists names nothing registers, and a
+  // binding on one of those could never fire. See sendCommands in
+  // src/companion.js.
+  let commands = {};
   // { version, at, items: [{ name, type, sides }] } — what the client says can
   // be built, harvested in the game tab because only it has the rules. Empty
   // until the game has been opened once with this extension installed.
@@ -321,6 +352,48 @@
   }
 
   /**
+   * The buttons a binding may use, and what to call them. The game tab keeps
+   * the same table (`MOUSE_NAMES` in src/companion.js) and the same rule: left
+   * and right are never offered, because left is how you click anything and
+   * right is the game's own order.
+   */
+  const MOUSE_NAMES = { 3: "Back", 4: "Forward" };
+
+  function mouseName(button) {
+    return MOUSE_NAMES[button] || "Button " + button;
+  }
+
+  /**
+   * A mouse press as a descriptor, shaped exactly like a key's.
+   *
+   * `code` is `Mouse<n>` so `bindingId` needs no mouse form — the page and the
+   * game tab go on comparing bindings the one way they already agree on. There
+   * is no `keyCode`: the client's own hotkey table hashes that field, and a
+   * mouse press can never be in that table, which is precisely why a mouse
+   * binding has to reach a client command through `executeCommand` instead.
+   */
+  function describeMouse(e) {
+    const parts = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    parts.push(mouseName(e.button));
+    return {
+      code: "Mouse" + e.button,
+      button: e.button,
+      ctrl: e.ctrlKey,
+      alt: e.altKey,
+      shift: e.shiftKey,
+      label: parts.join("+"),
+    };
+  }
+
+  /** Whether a descriptor is a mouse binding rather than a key. */
+  function isMouse(key) {
+    return !!key && typeof key.code === "string" && key.code.startsWith("Mouse");
+  }
+
+  /**
    * What is wrong with a binding, as far as this page can tell without a game.
    *
    * Shift counts as a modifier here. It did not, which meant two of the four
@@ -334,11 +407,36 @@
    *
    * The live answer is the game's own table, which only the game can read.
    */
+  /**
+   * What is worth saying about a mouse binding, which is never what is worth
+   * saying about a key.
+   *
+   * The key warnings are all about layers a mouse press does not pass through:
+   * the client's own hotkey table (which hashes a `keyCode` a mouse has not),
+   * the chord grid's letter block, the `Ctrl` that means "queue next" on a
+   * build key. What a mouse binding contends with is the **browser**.
+   */
+  function mouseWarning(k) {
+    if ((k.button === 3 || k.button === 4) && !k.ctrl && !k.alt && !k.shift) {
+      // The one case the live probe never exercised — see the note in the
+      // game tab's mousedown listener. Said here because this row is where
+      // someone chooses it.
+      return (
+        "Back and Forward with no modifier are the browser's navigation. The extension prevents " +
+        "it, and that is the one combination never confirmed against a live browser."
+      );
+    }
+    return "";
+  }
+
   function keyWarning(k) {
-    // The shipped defaults are all in here since 0.66.0, and they carry the mark
-    // on purpose: a bare key IS taken from the game, and someone who has not
-    // rebound the game's own use of it should know before they play. Stated as
-    // what happens rather than as a doubt — the extension wins this press.
+    if (isMouse(k)) return mouseWarning(k);
+    // No shipped default is in here any more — that is what 0.101.0 bought, and it
+    // is why the warning stayed. From 0.66.0 to 0.100.0 every default was a bare
+    // digit and every row carried this mark on purpose; it now fires only on a
+    // binding somebody chose. A bare key IS taken from the game, and whoever has
+    // not rebound the game's own use of it should know before they play. Stated
+    // as what happens rather than as a doubt — the extension wins this press.
     if (!k.ctrl && !k.alt && !k.shift) {
       return "No modifier — the extension takes this key first, and the game never sees it.";
     }
@@ -357,6 +455,15 @@
       return "Ctrl on a build key means “queue next”; binding it here takes that away.";
     }
     return "";
+  }
+
+  /**
+   * A binding reduced to one comparable string — the same format
+   * `bindingId` in src/companion.js writes, because the two halves compare the
+   * same bindings and a second spelling of it is a second thing to get wrong.
+   */
+  function bindingId(key) {
+    return `${key.code}|${key.alt ? 1 : 0}${key.ctrl ? 1 : 0}${key.shift ? 1 : 0}`;
   }
 
   function effectiveKey(name) {
@@ -383,18 +490,48 @@
     button.textContent = "press a combination…";
     button.classList.add("listening");
 
+    const stop = () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("mousedown", onMouse, true);
+      window.removeEventListener("contextmenu", onContext, true);
+      button.classList.remove("listening");
+      button.textContent = was;
+    };
+
     const onKey = (e) => {
       // Ignore a modifier pressed on its own — it is never the whole binding.
       if (MODIFIER_CODES.includes(e.code)) return;
       e.preventDefault();
       e.stopPropagation();
-      window.removeEventListener("keydown", onKey, true);
-      button.classList.remove("listening");
-      button.textContent = was;
+      stop();
       done(describe(e));
     };
 
+    // A mouse press is a binding too, for the buttons a keyboard does not have.
+    // Left and right are not offered and the reason is in this handler rather
+    // than in prose: **left is the press that started this capture** — the user
+    // clicked the button to get here — and right is the game's own order. A
+    // capture that took either would bind the click that opened it.
+    // Left, middle and right are never offered: left is the press that started
+    // this capture, right is the game's own order, and middle is the browser's
+    // autoscroll. Everything from 3 up binds.
+    const onMouse = (e) => {
+      if (e.button < 3) return;
+      e.preventDefault();
+      e.stopPropagation();
+      stop();
+      done(describeMouse(e));
+    };
+
+    // Only while listening: the middle and side buttons are bindable, and the
+    // menu that back/forward can raise would land on top of the row being set.
+    const onContext = (e) => {
+      e.preventDefault();
+    };
+
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("mousedown", onMouse, true);
+    window.addEventListener("contextmenu", onContext, true);
   }
 
   /**
@@ -765,6 +902,208 @@
       captureKey(buildAddEl, (key) => {
         builds[buildSide] = buildRows(buildSide).concat([{ name, key }]);
         saveBuilds();
+      });
+    });
+  }
+
+  // --- Game commands --------------------------------------------------------
+
+  /**
+   * The two command names whose own spelling would mislead.
+   *
+   * Both read out of the client (v0.83.3), where `initKeyboardCommands` wires
+   * them: `Scoreboard` is `gameMenu.openDiplo()` — the alliance list, nothing
+   * that looks like a score — and `Options` is `gameMenu.open()`. Every other
+   * name says what it does once it is spaced out, so this table stays at two
+   * rather than growing into a second copy of the client's string file.
+   */
+  const COMMAND_LABELS = {
+    Scoreboard: "Alliance screen",
+    Options: "The game's menu",
+  };
+
+  /** `CenterOnRadarEvent` -> "Center on radar event", `TeamSelect_1` -> "Team select 1". */
+  function commandLabel(name) {
+    if (COMMAND_LABELS[name]) return COMMAND_LABELS[name];
+    return String(name)
+      .replace(/_(\d+)$/, " $1")
+      .replace(/([a-z0-9])([A-Z])/g, (all, before, after) => before + " " + after.toLowerCase());
+  }
+
+  /** What the client registers, as the game tab harvested it. */
+  function commandItems() {
+    return (commands && Array.isArray(commands.items) && commands.items) || [];
+  }
+
+  function commandRows() {
+    return Array.isArray(commandKeys) ? commandKeys : [];
+  }
+
+  function saveCommandKeys(after) {
+    chrome.storage.local.set({ commandKeys }, after || renderCommands);
+  }
+
+  /**
+   * What is wrong with one of these bindings, if anything.
+   *
+   * Deliberately **not** `keyWarning`: its first line is "no modifier — the
+   * extension takes this key first, and the game never sees it", which is the
+   * one thing this list is *for*. The press is taken from the client and the
+   * command runs anyway, so a bare key here costs nothing and earns no mark.
+   *
+   * What is worth saying is a key claimed twice inside the extension, since
+   * only one claim can win, and which one is fixed by the order the game tab's
+   * listener asks in: the panel hotkeys, then this list, then the build keys.
+   */
+  function commandWarning(key, twice) {
+    if (twice) return `${key.label} is on two commands here — only the first will fire.`;
+    if (isMouse(key)) return mouseWarning(key);
+    for (const name of Object.keys(DEFAULT_KEYS)) {
+      if (name === "debug" && !hasDebugPanel()) continue;
+      if (bindingId(effectiveKey(name)) === bindingId(key)) {
+        return `${KEY_LABELS[name]} is on this key and is asked first — the command would never fire.`;
+      }
+    }
+    for (const [side, rows] of Object.entries(builds || {})) {
+      for (const build of rows || []) {
+        if (build && build.key && bindingId(build.key) === bindingId(key)) {
+          return `A ${side} build key is on this key; the command is asked first, so that build order never fires.`;
+        }
+      }
+    }
+    if (chordTables && chordTables.GRID_KEYS.includes(key.code)) {
+      return "On the build grid's block — an open grid takes this key instead.";
+    }
+    if (key.alt && key.shift && !key.ctrl) {
+      return "Alt+Shift is the Windows keyboard-layout switch; it may never reach the page.";
+    }
+    return "";
+  }
+
+  function renderCommandPicker() {
+    if (!commandPickEl) return;
+    const items = commandItems();
+    commandPickEl.textContent = "";
+    if (!items.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = "no command list yet";
+      commandPickEl.append(none);
+      commandPickEl.disabled = true;
+      commandAddEl.disabled = true;
+      return;
+    }
+    for (const name of items) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = commandLabel(name);
+      // The client's own spelling, for anyone who knows it from keyboard.ini.
+      option.title = name;
+      commandPickEl.append(option);
+    }
+    commandPickEl.disabled = false;
+    commandAddEl.disabled = false;
+  }
+
+  /**
+   * One row per binding: what it fires, the key, and a way to drop it — the
+   * same shape as the build list, because it is the same kind of list.
+   */
+  function renderCommandList() {
+    if (!commandListEl) return;
+    commandListEl.textContent = "";
+    const rows = commandRows();
+    if (!rows.length) {
+      const empty = document.createElement("p");
+      empty.className = "count";
+      empty.textContent = commandItems().length
+        ? "No game commands on our keys yet."
+        : "No command list yet — play a match once with the extension installed and it is read from the client.";
+      commandListEl.append(empty);
+      return;
+    }
+
+    const seen = new Map();
+    for (const row of rows) {
+      if (!row || !row.key) continue;
+      const id = bindingId(row.key);
+      seen.set(id, (seen.get(id) || 0) + 1);
+    }
+
+    const offered = commandItems();
+    for (const row of rows) {
+      if (!row || !row.key || !row.command) continue;
+      const el = document.createElement("div");
+      el.className = "keyrow";
+
+      const label = document.createElement("span");
+      label.className = "keylabel";
+      label.textContent = commandLabel(row.command);
+      label.title = row.command;
+
+      const button = document.createElement("button");
+      button.className = "keybtn";
+      button.type = "button";
+      button.textContent = row.key.label;
+      button.addEventListener("click", () => {
+        captureKey(button, (key) => {
+          row.key = key;
+          saveCommandKeys();
+        });
+      });
+
+      const remove = document.createElement("button");
+      remove.className = "keyreset";
+      remove.type = "button";
+      remove.title = `unbind ${commandLabel(row.command)}`;
+      remove.textContent = "×";
+      remove.addEventListener("click", () => {
+        commandKeys = commandRows().filter((other) => other !== row);
+        saveCommandKeys();
+      });
+
+      // A command this client does not register — an older client's name, or a
+      // cheat with cheats off. Said here because in a match it looks like the
+      // key simply not working; the game tab says the same at the press itself.
+      const unknown =
+        offered.length && !offered.includes(row.command)
+          ? `${row.command} is not a command this client registers — the key will do nothing.`
+          : "";
+      const warning = unknown || commandWarning(row.key, seen.get(bindingId(row.key)) > 1);
+      if (warning) {
+        const help = document.createElement("span");
+        help.className = "help warn";
+        help.tabIndex = 0;
+        help.setAttribute("role", "note");
+        help.setAttribute("aria-label", `About ${commandLabel(row.command)} — this binding has a warning`);
+        help.textContent = "?";
+        const tip = document.createElement("span");
+        tip.className = "tip";
+        const warnEl = document.createElement("span");
+        warnEl.className = "tipwarn";
+        warnEl.textContent = warning;
+        tip.append(warnEl);
+        help.append(tip);
+        el.append(label, button, remove, help);
+      } else {
+        el.append(label, button, remove);
+      }
+      commandListEl.append(el);
+    }
+  }
+
+  function renderCommands() {
+    renderCommandList();
+    renderCommandPicker();
+  }
+
+  if (commandAddEl) {
+    commandAddEl.addEventListener("click", () => {
+      const command = commandPickEl.value;
+      if (!command) return;
+      captureKey(commandAddEl, (key) => {
+        commandKeys = commandRows().concat([{ command, key }]);
+        saveCommandKeys();
       });
     });
   }
@@ -1420,6 +1759,7 @@
     prefAutoRenderEl.checked = prefs.autoRender !== false;
     prefSidebarKeysEl.checked = prefs.sidebarKeys !== false;
     prefChordSingleEl.checked = !!prefs.chordSinglePress;
+    prefChordBuildableEl.checked = !!prefs.chordOnlyBuildable;
     prefGrabTabKeysEl.checked = prefs.grabTabKeys !== false;
     prefFullscreenEnterEl.checked = prefs.fullscreenOnEnter !== false;
     prefMenuOffEscapeEl.checked = prefs.menuOffEscape !== false;
@@ -1447,6 +1787,12 @@
 
   prefChordSingleEl.addEventListener("change", () => {
     setPrefs({ chordSinglePress: prefChordSingleEl.checked });
+  });
+
+  // Reaches a grid that is already open: the game tab decides what a tile shows
+  // on every paint, not once when the grid was drawn.
+  prefChordBuildableEl.addEventListener("change", () => {
+    setPrefs({ chordOnlyBuildable: prefChordBuildableEl.checked });
   });
 
   // The game tab takes or gives back the browser's keyboard lock when this
@@ -4095,7 +4441,7 @@ The card and its render go. The guide is kept.`)) return;
    * file into a disk image.
    */
   const BACKUP_ITEMS = {
-    bindings: ["keys", "builds", "chords", "prefs"],
+    bindings: ["keys", "builds", "commandKeys", "chords", "prefs"],
     // Not the sprite offsets. They were dialled once and are the shipped
     // default now (`SPRITE_FIX` in src/hq-preview.js) — carrying a copy per
     // profile made a measurement look like a preference, and a build without
@@ -4715,6 +5061,8 @@ The card and its render go. The guide is kept.`)) return;
       evicted: null,
       keys: {},
       builds: {},
+      commandKeys: [],
+      commands: {},
       chords: {},
       roster: {},
       colours: {},
@@ -4755,6 +5103,8 @@ The card and its render go. The guide is kept.`)) return;
       evicted = data.evicted;
       keys = data.keys;
       builds = data.builds || {};
+      commandKeys = Array.isArray(data.commandKeys) ? data.commandKeys : [];
+      commands = data.commands || {};
       chords = migrateChords(data.chords || {});
       roster = data.roster || {};
       colours = data.colours || {};
@@ -4819,6 +5169,7 @@ The card and its render go. The guide is kept.`)) return;
       });
       renderKeys();
       renderBuilds();
+      renderCommands();
       renderChords();
       // Before the pools: a run left going in another tab is what decides
       // whether *Render ticked* is available at all.
@@ -4868,10 +5219,23 @@ The card and its render go. The guide is kept.`)) return;
       colours = changes.colours.newValue || {};
       renderRecolour();
     }
+    // The command list arrives on the terms of the two above: harvested by a
+    // game tab that may well be opened after this page.
+    if (changes.commands) {
+      commands = changes.commands.newValue || {};
+      renderCommands();
+    }
     // Another options tab editing the same profiles.
     if (changes.builds) {
       builds = changes.builds.newValue || {};
       renderBuilds();
+      // A build key that has just moved onto a command's key changes what that
+      // row has to say about itself.
+      renderCommands();
+    }
+    if (changes.commandKeys) {
+      commandKeys = changes.commandKeys.newValue || [];
+      renderCommands();
     }
     if (changes.chords) {
       chords = changes.chords.newValue || {};

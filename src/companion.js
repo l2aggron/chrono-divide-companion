@@ -159,53 +159,62 @@
    * carrying it lets the collision check compare against its live table.
    */
   const DEFAULT_KEYS = {
-    // **Bare digits, every one of them** (0.66.0), which is a trade and worth
-    // stating as one: a digit with no modifier is a key the client uses for its
-    // own team select, and our handler takes the press first — so with the
-    // shipped defaults, selecting those groups does not reach the match.
-    // `Ctrl`+digit is
-    // untouched (assigning a group still works), because `matchesHotkey`
-    // compares the modifier state exactly rather than ignoring extras.
+    // **`Alt` + the right hand** (0.101.0), which replaced bare digits `1`-`7`
+    // (0.66.0-0.100.0). The old table was one keyboard's answer and said so: a
+    // bare digit is the client's `TeamSelect_N`, our handler is `window` +
+    // capture + `stopPropagation`, so a stock install lost group select to a
+    // binding nothing announced but a tooltip.
     //
-    // It is the right trade on the keyboard this is played on, and the reason is
-    // physical. The author's board is a split with the digits on a **layer**, so
-    // `Alt+1` costs three keys — layer, Alt, digit — where a bare digit costs
-    // two. The keys also have to be on the left half (the right hand is on the
-    // mouse) and off the qwert/asdfg/zxcvb block (an open grid spends every
-    // modifier on those fifteen letters), and once both hold, the digits are all
-    // that is left. The user rebound the game's own group select rather than
-    // give up the press.
+    // `Alt`+letter is the emptiest space the client has. Read out of the shipped
+    // `[Hotkey]` table (`langmd.mix`) plus the seven defaults `KeyBinds#load`
+    // injects before it: the only two entries under `Alt` are `Alt+M`
+    // (`ToggleMarbleMadness`, in the enum and never passed to
+    // `registerKeyCommand`) and `Alt+S` (`ToggleShroud`, registered only while
+    // `cheatsEnabled`). Every other modifier is spoken for — `Shift`+digit is
+    // `TeamAddSelect`, `Ctrl`+digit is `TeamCreate`, `Alt`+digit is
+    // `TeamCenter`, and `Ctrl`+letter is eight inert commands, three cheats,
+    // `Ctrl+R`, and the browser's own tab keys.
     //
-    // Anyone who has not done that rebinding wants a modifier here: the options
-    // page marks a modifier-less binding as one that takes the key from the
-    // game, and every one of these carries that mark on purpose.
+    // The letters are the right hand's because the left one is not available to
+    // any general default: an open grid spends the whole `qwert`/`asdfg`/`zxcvb`
+    // block under *every* modifier, and that block is the left hand. None of
+    // these is a mid-fight press, so the hand leaving the mouse costs
+    // nothing that matters.
     //
-    // Ordered by how often they are pressed: the two in-match panels, the two
-    // preview keys, the menu that used to be Escape, then the one you open when
-    // something is wrong.
-    overlay: { code: "Digit1", keyCode: 49, alt: false, shift: false, ctrl: false, label: "1" },
-    queues: { code: "Digit2", keyCode: 50, alt: false, shift: false, ctrl: false, label: "2" },
-    hqSwap: { code: "Digit3", keyCode: 51, alt: false, shift: false, ctrl: false, label: "3" },
-    hqFull: { code: "Digit4", keyCode: 52, alt: false, shift: false, ctrl: false, label: "4" },
-    // The game menu, on the digit the debug panel used to have (0.73.0), on the
-    // user's own call: it is the one of these pressed *under pressure* — the
-    // press that used to be Escape — so it gets the digit nearest the ones
-    // already in the hand, and the panel opened when something is wrong moves up
-    // to the free `6`.
-    menu: { code: "Digit5", keyCode: 53, alt: false, shift: false, ctrl: false, label: "5" },
-    debug: { code: "Digit6", keyCode: 54, alt: false, shift: false, ctrl: false, label: "6" },
-    // The net readout, and it is the same trade as the keys above rather than a
-    // new one: a bare digit is two keypresses where a modified one is three, and
-    // the cost is the client's own team select for that group. A modifier was
-    // tried and is wrong here — `Shift`+digit is a press this extension
-    // deliberately leaves to the client (scripts/check-chords.mjs exercises it),
-    // so taking it would be a quieter theft than the bare key, not a smaller one.
+    // `Alt` also means *cancel* on a build key or a grid slot. The two key sets
+    // are disjoint, so it is a legibility cost rather than a collision.
     //
-    // `7` rather than the then-free `6`, on the user's own call (2026-08-20):
-    // the digits sit on a layer of a split board, and which of them the left
-    // hand can actually reach is not a fact this file can derive. `6` went to
-    // the debug panel the same week, when the menu key took its `5`.
-    net: { code: "Digit7", keyCode: 55, alt: false, shift: false, ctrl: false, label: "7" },
+    // One caveat that is not visible from the table: AltGr on a German or Polish
+    // layout arrives as `ctrlKey && altKey`, and `matchesHotkey` compares the
+    // modifier state exactly — so these fire on the left `Alt` only.
+    //
+    // The author's own board still wants bare digits (a split keyboard whose
+    // digits live on a layer, right hand on the mouse, so `1` is two presses
+    // where `Alt+1` is three). That is now an override written on the options
+    // page, not what everyone else inherits.
+    //
+    // `U` `I` `O` `P` are the four panels and pictures, in the order they are
+    // reached for; `M` and `N` carry their own initial; `J` and `K` are the two
+    // opened when something is wrong.
+    overlay: { code: "KeyO", keyCode: 79, alt: true, shift: false, ctrl: false, label: "Alt+O" },
+    queues: { code: "KeyP", keyCode: 80, alt: true, shift: false, ctrl: false, label: "Alt+P" },
+    hqSwap: { code: "KeyI", keyCode: 73, alt: true, shift: false, ctrl: false, label: "Alt+I" },
+    hqFull: { code: "KeyU", keyCode: 85, alt: true, shift: false, ctrl: false, label: "Alt+U" },
+    // The game menu, on the letter it is named after: it is the one of these
+    // pressed *under pressure* — the press that used to be Escape.
+    menu: { code: "KeyM", keyCode: 77, alt: true, shift: false, ctrl: false, label: "Alt+M" },
+    // Off the pattern on purpose: the debug panel ships only in the dev build
+    // (`ownKeys`), so it takes a key none of the public six would want back.
+    debug: { code: "KeyJ", keyCode: 74, alt: true, shift: false, ctrl: false, label: "Alt+J" },
+    net: { code: "KeyN", keyCode: 78, alt: true, shift: false, ctrl: false, label: "Alt+N" },
+    // The memory readout, next to the debug panel rather than next to the six:
+    // both are opened when something is wrong, not while playing. Its own
+    // argument for a bare key (0.100.0 — it is the panel a stranger is talked
+    // into opening in a chat window mid-match, and one press is easier to say
+    // than a modifier) did not survive the move off the digits, because a bare
+    // key that costs the client nothing is `I`, `J` or `O` and nothing else, and
+    // splitting the set to buy one press back would cost more than it saves.
+    memory: { code: "KeyK", keyCode: 75, alt: true, shift: false, ctrl: false, label: "Alt+K" },
   };
 
   /**
@@ -368,6 +377,11 @@
     // Empty until the bridge pushes them, which is the same wire the other
     // hotkeys arrive on.
     builds: {},
+    // [{ command, key }], the client commands the options page put on keys of
+    // ours. A flat list rather than a per-side table like `builds` above: a
+    // client command is the same command whatever country you drew, so there
+    // is nothing for a side to profile.
+    commandKeys: [],
     // side -> { section -> [object id per slot] }, the chord grids written
     // in the options page. A side that is not in here plays the shipped
     // layout, so an empty table is a working feature rather than a dead one.
@@ -468,6 +482,11 @@
       // One press of a tab key opens the grid, rather than two inside
       // CHORD_WINDOW. The press still reaches the client either way.
       chordSinglePress: false,
+      // Draw only what can be ordered right now, instead of the whole grid with
+      // what cannot be ordered dimmed. Off by default: the full block is what a
+      // hand learns, and a key that moves costs more than a key that is dark.
+      // The rule, and what it deliberately keeps, is `chordSlotShown`.
+      chordOnlyBuildable: false,
       // Hold the codes we need a Ctrl on against the browser while the game
       // is fullscreen, so Ctrl+W queues the grid's second slot next instead of
       // closing the tab.
@@ -1134,7 +1153,11 @@
         const originalInit = Combatant.prototype.init;
         Combatant.prototype.init = function (...args) {
           state.combatant = this;
-          note(`match started — build hotkeys ${buildBindings().size ? "armed" : "unbound"}`);
+          const onCommands = commandBindings().size;
+          note(
+            `match started — build hotkeys ${buildBindings().size ? "armed" : "unbound"}` +
+              (onCommands ? `, ${onCommands} key${onCommands === 1 ? "" : "s"} on game commands` : "")
+          );
           // The tab keys are only worth taking from the browser while there is
           // a queue to cancel with them.
           syncKeyLock();
@@ -1158,7 +1181,14 @@
           // moment everything is certainly up.
           sendRoster();
           sendColours();
-          return originalInit.apply(this, args);
+          const started = originalInit.apply(this, args);
+          // After the client's own `init` and not before it: that is where the
+          // `WorldInteraction` is built and `initKeyboardCommands` fills its
+          // command table, so a harvest above this line would read an object
+          // that does not exist yet. `init` is synchronous, so this is not a
+          // race — read out of v0.83.3, where it ends by wiring the HUD.
+          sendCommands();
+          return started;
         };
         if (typeof Combatant.prototype.dispose === "function") {
           const originalDispose = Combatant.prototype.dispose;
@@ -2891,6 +2921,8 @@
       renderHud();
     }
 
+    if (Array.isArray(data.commandKeys)) state.commandKeys = data.commandKeys;
+
     if (data.chords) {
       state.chords = data.chords;
       // A grid open while the options page is edited redraws against the new
@@ -3697,6 +3729,132 @@
   }
 
   /**
+   * The buttons a mouse binding may use, and what to call them.
+   *
+   * 0 and 2 are absent on purpose and that absence is the rule: left is how you
+   * click anything and right is the game's own order, so neither is ever taken.
+   * 1 is the middle button — in scope because the *client* does not use it,
+   * which is not the same as the browser not using it. Anything above 4 is
+   * accepted sight unseen and named by number: a mouse with eight buttons
+   * either sends them as buttons, in which case they work here, or its driver
+   * sends keystrokes, in which case they are already bindable as keys.
+   */
+  const MOUSE_NAMES = { 3: "Back", 4: "Forward" };
+
+  /**
+   * Whether a press belongs to the extension at all.
+   *
+   * Left, middle and right are the mouse the game already has: left clicks,
+   * right orders, middle is the browser's autoscroll. Everything from 3 up is
+   * free, and all of it is offered — a mouse with eight buttons either sends
+   * them as buttons, in which case they bind here, or its driver sends
+   * keystrokes, in which case they bind as keys.
+   */
+  function ourButton(button) {
+    return button >= 3;
+  }
+
+  /**
+   * A mouse press as the same string a key press reduces to.
+   *
+   * `Mouse3` stands where a `KeyboardEvent.code` would, so **`bindingId` needs
+   * no mouse form and the two halves of the extension go on comparing bindings
+   * the one way they already agree on**. No keyboard code is `Mouse<n>`, so a
+   * mouse binding and a key binding cannot collide by accident.
+   */
+  function mouseBindingId(e, over) {
+    const ctrl = over && "ctrl" in over ? over.ctrl : e.ctrlKey;
+    return `Mouse${e.button}|${e.altKey ? 1 : 0}${ctrl ? 1 : 0}${e.shiftKey ? 1 : 0}`;
+  }
+
+  /**
+   * The panel toggles a binding can point at, by the name `state.keys` uses.
+   *
+   * A function rather than a constant so the toggles are read at the press:
+   * some of them are assigned during wiring, and a table built while the IIFE
+   * runs would hold whatever they were then.
+   *
+   * The keydown ladder below asks the same seven in the same order by hand.
+   * That is two lists, and `scripts/check-commands.mjs` asserts they hold the
+   * same names — the ladder is a hot path with its own tests and was not worth
+   * rewriting to share this, but it was worth making the drift loud.
+   */
+  function panelToggles() {
+    return {
+      debug: toggleHud,
+      overlay: toggleIngame,
+      hqSwap: toggleHqPreview,
+      hqFull: toggleHqFull,
+      queues: toggleQueues,
+      net: toggleNet,
+      memory: toggleMemory,
+    };
+  }
+
+  /**
+   * The command bindings in force, as binding id -> the client's command name.
+   *
+   * Flat where `buildBindings` is per side, because a client command does not
+   * depend on the country you drew.
+   */
+  function commandBindings() {
+    const out = new Map();
+    for (const row of state.commandKeys || []) {
+      if (row && row.key && row.command) out.set(bindingId(row.key), row.command);
+    }
+    return out;
+  }
+
+  /**
+   * The client's keyboard dispatcher for the match in play, or null.
+   *
+   * Reached through the CombatantUi rather than hooked on its own: the client
+   * builds one `WorldInteraction` per match, hands it to `initKeyboardCommands`
+   * and holds it as `worldInteraction`, so this is the very object its own
+   * presses are dispatched through — and it stops existing exactly when the
+   * match does, which is the property that matters. Read at the press rather
+   * than captured at match start, because `init` sets it *after* our hook has
+   * run.
+   */
+  function keyboardHandler() {
+    const world = state.combatant && state.combatant.worldInteraction;
+    const handler = world && world.keyboardHandler;
+    return handler && typeof handler.executeCommand === "function" ? handler : null;
+  }
+
+  /**
+   * Run one of the client's own commands, the way the client runs it.
+   *
+   * `KeyboardHandler#executeCommand` is the same call its own key handler makes
+   * once it has hashed a press into a command, so everything downstream — the
+   * trigger modes, the pause while a menu is up — is the client's own and needs
+   * no reimplementation here. **No synthetic `KeyboardEvent`**: this extension
+   * has one of those already (`reissueFullscreenKey`) and it exists only because
+   * fullscreen needs the client's own *lock*, not because a command needs a key.
+   *
+   * A press is consumed whether or not the command runs. The alternative —
+   * falling through to the client for a command it does not register — makes a
+   * key do one thing or another depending on invisible client state (a cheat is
+   * registered only while `cheatsEnabled`), which is worse than a key that says
+   * why it did nothing.
+   *
+   * @returns {boolean} whether there was a match to run it in
+   */
+  function runCommand(command) {
+    const handler = keyboardHandler();
+    if (!handler) return false;
+    // `executeCommand` looks the name up in its own table and returns in
+    // silence when it is not there, so an unregistered command would otherwise
+    // be a key that does nothing and reports nothing.
+    if (handler.commands instanceof Map && !handler.commands.has(command)) {
+      note(`${command} is not a command this match registers — the key did nothing`, "warn");
+      return true;
+    }
+    handler.executeCommand(command);
+    return true;
+  }
+
+  /**
    * Which side the local player is on, or "" when there is no match.
    *
    * `FACTIONS` rather than the country's own `side`: the client's SideType is
@@ -3858,7 +4016,12 @@
     // drops, which from the outside looks like the key half-working.
     const quantity = Math.min(want || 1, at.room);
     if (quantity <= 0) {
-      buildNote(`${label} — queue is full`);
+      // Two different noughts, and the remedy differs: a queue that is full
+      // empties as it builds, a build limit does not move until one of them
+      // dies. Saying "queue is full" over an Ore Purifier already standing was
+      // the wrong half of the answer.
+      const limited = buildLimitRoom(object, at.queued) <= 0;
+      buildNote(`${label} — ${limited ? "you have all of those you may build" : "queue is full"}`);
       return false;
     }
 
@@ -4242,6 +4405,45 @@
    * `status` is carried as `QueueStatus`'s own name rather than its number, so
    * the decision table can be tested without the client's enum.
    */
+  /**
+   * How many more of an object its `BuildLimit` still allows.
+   *
+   * The third clamp in the client's own `UpdateQueueAction.process`, and the one
+   * the extension did not have. A limited building you already own stays
+   * **available** — `isAvailableForProduction` weighs tech level, factory and
+   * prerequisites and never looks at the limit — so nothing on the tile said the
+   * key was dead, and a press pushed an action the client dropped in silence as
+   * it ran. The Ore Purifier and the Cloning Vats are the two that meet a player
+   * every match.
+   *
+   * Counted the way the client counts it: what is standing, limbo included —
+   * that is a unit sitting inside a transport — plus what is on order, against
+   * `|limit|`. A **negative** limit counts everything ever built rather than what
+   * is alive, which is `limitedUnitsBuiltByName` and the reason -1 is not the
+   * same as no limit at all. No limit at all is `Infinity`, which is what the
+   * client's rules parser leaves there when `BuildLimit=` is absent.
+   *
+   * @param {object} rules the object's rules, as the client parsed them
+   * @param {number} queued how many of it this player already has on order
+   */
+  function buildLimitRoom(rules, queued) {
+    const limit = rules && rules.buildLimit;
+    if (!Number.isFinite(limit)) return Infinity;
+    const player = state.combatant && state.combatant.player;
+    // A client whose player object no longer answers this is one this reading is
+    // out of date for. "No limit" leaves every tile exactly as it was before the
+    // clamp existed, rather than dimming a grid on a guess.
+    if (!player || typeof player.getOwnedObjectsByType !== "function") return Infinity;
+    let built = 0;
+    if (limit >= 0) {
+      const owned = player.getOwnedObjectsByType(rules.type, true) || [];
+      built = owned.filter((object) => object.name === rules.name).length;
+    } else if (typeof player.getLimitedUnitsBuilt === "function") {
+      built = player.getLimitedUnitsBuilt(rules.name) || 0;
+    }
+    return Math.max(0, Math.abs(limit) - (built + queued));
+  }
+
   function queueStateFor(object) {
     const production = state.combatant && state.combatant.player && state.combatant.player.production;
     if (!production || !object) return null;
@@ -4271,9 +4473,14 @@
       // Only the item at the head of a queue is being paid for, so only it has
       // a progress worth drawing — the rest are waiting at 0.
       progress: isFirst ? at.items[0].progress || 0 : 0,
-      // The same clamp `queueBuild` orders against: the queue's own room and
-      // this object's per-type cap, whichever runs out first.
-      room: Math.min(at.maxSize - at.currentSize, at.maxItemQuantity - queued),
+      // The same clamp `queueBuild` orders against: the queue's own room,
+      // this object's per-type cap and its build limit, whichever runs out
+      // first.
+      room: Math.min(
+        at.maxSize - at.currentSize,
+        at.maxItemQuantity - queued,
+        buildLimitRoom(object, queued)
+      ),
     };
   }
 
@@ -5468,30 +5675,52 @@
     const names = layout.map((value) => resolveSlot(value, available, owned));
 
     /**
-     * Which of them are drawn: **everything this country builds**, orderable
-     * right now or not. What cannot be ordered at this moment is dimmed rather
-     * than blanked — an Ore Purifier already standing, a key still waiting on a
-     * battle lab, a superweapon halfway through its charge. 0.59.0 drew only
-     * what a press would order; the cost was a grid whose shape changed under
-     * the hand between two openings, and no way at all to ask the one question a
-     * dimmed tile answers — *the key is right, so what is the thing waiting on?*
-     *
-     * Two things stay holes, and both are *never* rather than *not yet*.
-     * `chordResolve` returns `""` when the country builds none of the slot's
-     * ids — a German Tank Destroyer on a Korean grid. And a `sw:` slot keeps
-     * its old rule of being drawn only once the weapon is held: those two are
-     * paradrops off an Airforce Command and a captured tech airport, so a
-     * Korean's American-paradrop key is dead for the whole match, and the tile
-     * would have no cameo to draw either — the picture comes off the weapon.
-     * The four real superweapons are not `sw:` slots at all: their key is the
-     * building's, which draws as an ordinary dimmed tile until it is up.
+     * What each key *is*, before anything is drawn: the object behind the id,
+     * the weapon it may have become, and whether it still orders or now aims.
+     * Asked once per slot here because both visibility rules below and the tile
+     * loop want the same answer, and `slotSuperWeapon` is a walk.
      */
-    const shown = names.map((name) => {
-      if (!name) return false;
-      if (CHORD_TABLES.chordIsSuperWeapon(name)) return !!slotSuperWeapon(name, null);
-      return true;
+    const facts = names.map((name) => {
+      const object = owned.get(name);
+      const isSuperWeapon = !!name && CHORD_TABLES.chordIsSuperWeapon(name);
+      const sw = name ? slotSuperWeapon(name, object) : null;
+      const act = CHORD_TABLES.chordSlotAction({
+        isSuperWeapon,
+        superWeapon: superWeaponState(sw),
+      }).act;
+      return { object, sw, isSuperWeapon, uses: !!name && act !== "order" };
     });
-    const rows = CHORD_TABLES.chordGridRows(shown, GRID_COLS);
+
+    /**
+     * Which of them are drawn, in two answers, because the setting decides only
+     * one of them. The rule itself is `chordSlotShown` in src/build-chords.js,
+     * where it can be tested; this supplies the facts and nothing more.
+     *
+     * `drawn` is the **whole grid** — everything this country builds, orderable
+     * or not — and it decides which cells hold a tile at all, under both
+     * settings. A tile that "only what can be built now" hides is therefore
+     * built and made invisible rather than left out: availability moves under an
+     * open grid, and a battle lab landing has to hand its keys back without the
+     * grid being closed and reopened for it.
+     *
+     * `live` is what is visible right now. Trailing rows are dropped against it,
+     * so an early-match units grid is two rows instead of three of nothing —
+     * and a dropped row is the one place where a tile that arrives late does
+     * wait for the next opening, which is a row nobody was looking at.
+     */
+    const onlyBuildable = !!state.prefs.chordOnlyBuildable;
+    const slotShown = (slot, mode) =>
+      CHORD_TABLES.chordSlotShown({
+        bound: !!names[slot],
+        isSuperWeapon: facts[slot].isSuperWeapon,
+        hasWeapon: !!facts[slot].sw,
+        available: available.has(names[slot]),
+        uses: facts[slot].uses,
+        onlyBuildable: mode,
+      });
+    const drawn = names.map((_, slot) => slotShown(slot, false));
+    const live = names.map((_, slot) => slotShown(slot, onlyBuildable));
+    const rows = CHORD_TABLES.chordGridRows(live, GRID_COLS);
 
     const grid = document.createElement("div");
     grid.className = "cdc-chord-grid";
@@ -5500,7 +5729,7 @@
       // A hidden key still costs its cell. The grid's geometry is the
       // keyboard's, so a hole that closed up would move every key after it and
       // the block would stop standing for the block under the hand.
-      if (!shown[slot]) {
+      if (!drawn[slot]) {
         const gap = document.createElement("i");
         gap.className = "cdc-chord-gap";
         grid.append(gap);
@@ -5513,17 +5742,11 @@
       const key = document.createElement("i");
       key.className = "cdc-chord-key";
       key.textContent = keyLabelFor(slot);
-      const object = owned.get(name);
       // Which of the two things this key is: something to order, or a
       // superweapon to use. A building that grants a timered weapon is the
       // second once the weapon exists, which is why this is not simply "is the
       // id a sw: one".
-      const sw = slotSuperWeapon(name, object);
-      const uses =
-        CHORD_TABLES.chordSlotAction({
-          isSuperWeapon: CHORD_TABLES.chordIsSuperWeapon(name),
-          superWeapon: superWeaponState(sw),
-        }).act !== "order";
+      const { object, sw, uses } = facts[slot];
       const label = document.createElement("span");
       label.className = "cdc-chord-name";
       label.textContent = uses
@@ -5550,6 +5773,10 @@
       // and the paint pass reads this class to know whose numbers to draw —
       // a charge rather than a queue.
       if (uses) tile.classList.add("cdc-chord-super");
+      // Hidden by "only what can be built now" — a class rather than a missing
+      // tile, so the paint pass can hand the key back the moment the thing it
+      // was waiting on arrives.
+      if (!live[slot]) tile.classList.add("cdc-chord-hidden");
       // Whether it can be ordered *right now* is not decided here. It changes
       // under an open grid — the Ore Purifier you are watching go up takes its
       // own key away the moment it lands — so `.cdc-chord-off` is a painted
@@ -5574,12 +5801,16 @@
     });
     chordEl.append(grid);
     if (!rows) {
-      // Every key of this tab empty — the layout binds nothing this country
-      // builds. Said in words rather than left as an empty box, which reads as
-      // the grid having failed to draw.
+      // Every key of this tab empty, for one of two reasons — the layout binds
+      // nothing this country builds, or the setting is hiding a tab whose whole
+      // roster is still behind a prerequisite. Said in words rather than left as
+      // an empty box, which reads as the grid having failed to draw, and the two
+      // are told apart because only one of them is worth waiting for.
       const none = document.createElement("div");
       none.className = "cdc-chord-none";
-      none.textContent = "nothing on this tab is yours to build";
+      none.textContent = drawn.some(Boolean)
+        ? "nothing on this tab can be built yet"
+        : "nothing on this tab is yours to build";
       chordEl.append(none);
     }
 
@@ -5619,12 +5850,23 @@
     // own: prerequisites come up, a factory is shelled, a build limit is reached
     // by the very thing the grid is showing the progress of.
     const available = availableNames();
+    const onlyBuildable = !!state.prefs.chordOnlyBuildable;
     for (const tile of chordEl.querySelectorAll(".cdc-chord-slot")) {
       const name = tile.dataset.name;
       const qty = tile.querySelector(".cdc-chord-qty");
       const pct = tile.querySelector(".cdc-chord-pct");
       const bar = tile.querySelector(".cdc-chord-bar");
       if (!name || !qty) continue;
+      // "Only what can be built now", re-decided every paint for the reason the
+      // dim is: a tile hidden because the battle lab was not up has to come back
+      // the moment it is, under the open grid. A key that *aims* is never
+      // hidden — a charged Chronosphere must not vanish because the lab behind
+      // its building died. Toggled rather than only set, so unticking the
+      // setting reaches a grid that is already open.
+      tile.classList.toggle(
+        "cdc-chord-hidden",
+        onlyBuildable && !available.has(name) && !tile.classList.contains("cdc-chord-super")
+      );
       // A tile whose key aims a superweapon has no queue behind it — what its
       // three marks say is a charge instead.
       if (tile.classList.contains("cdc-chord-super")) {
@@ -5870,7 +6112,7 @@
     // client draws. It rides with the move listener because the two are wanted
     // in exactly the same states.
     window.removeEventListener("mousedown", onPanelMouseDown, true);
-    if (!chordEl && !queuesEl && !netEl) {
+    if (!chordEl && !queuesEl && !netEl && !(memPanel && memPanel.visible())) {
       drawCursor(null);
       hoveredTile = null;
       return;
@@ -6248,6 +6490,7 @@
     for (const panel of [
       { el: queuesEl, drag: queuesDrag },
       { el: netEl, drag: netDrag },
+      { el: memPanel && memPanel.el(), drag: memPanel && memPanel.drag() },
     ]) {
       if (!panel.el || !panel.drag || !panel.el.contains(target)) continue;
       e.preventDefault();
@@ -6569,6 +6812,10 @@
 
   let rosterSent = false;
   let coloursSent = false;
+  // The command list this tab last published, as version + names. A string
+  // rather than a flag: the list is the client's, and a client that updates
+  // under a tab left open should publish the new one.
+  let commandsSent = "";
 
   /**
    * The colour table, harvested from the client's rules and handed to the
@@ -6609,6 +6856,36 @@
       // not a defect. The next config push tries again.
       note(`could not read the colour table (${e && e.message})`, "warn");
     }
+  }
+
+  /**
+   * The commands this client actually registers, for the options page to offer.
+   *
+   * Read off the live `KeyboardHandler` rather than off the `KeyCommandType`
+   * enum, and the difference is the whole point: the enum lists every name the
+   * client has ever had, while the handler's table is what a press can actually
+   * reach. `ToggleMarbleMadness` is in the enum and registered by nothing;
+   * `FreeMoney` is registered only while cheats are on. Either would be a
+   * binding that silently does nothing, and neither is offered.
+   *
+   * Cheap enough to run at every match start — it is a Map's keys, not a parse
+   * of rules.ini — so unlike the roster there is no stamp in a config push to
+   * check first. What is compared is what this tab last sent.
+   */
+  function sendCommands() {
+    const handler = keyboardHandler();
+    if (!handler || !(handler.commands instanceof Map)) return;
+    const items = [...handler.commands.keys()].filter((name) => typeof name === "string").sort();
+    if (!items.length) return;
+    const version = clientVersion();
+    const stamp = version + "/" + items.join("|");
+    if (stamp === commandsSent) return;
+    commandsSent = stamp;
+    window.postMessage(
+      { source: "cdc-page", type: "command-table", commands: { version, at: Date.now(), items } },
+      "*"
+    );
+    note(`command table: ${items.length} commands this match registers`);
   }
 
   async function sendRoster(force) {
@@ -7080,6 +7357,108 @@
     }
   }
 
+  // --- The memory readout ---------------------------------------------------
+
+  /**
+   * Players report the tab crashing, and one reports the stage before it - the
+   * page still there with a blank canvas, which is a lost WebGL context. This
+   * is the panel that says what the tab was holding when it happened, and opens
+   * itself when it is about to.
+   *
+   * The rule and the arithmetic are in `src/mem-readout.js`; what stays here is
+   * the wiring only - the four names it needs from this file, the clock, and
+   * the two ends of the trace. Same inversion as the debug HUD, for a different
+   * reason: not because the public build drops it (it does not - this one is
+   * *for* the public build), but because a sample ring and an alarm rule are
+   * testable without a browser and 7900 lines of overlay are not.
+   */
+  let memMeter = null;
+  let memPanel = null;
+  let memTimer = 0;
+
+  function startMemory() {
+    const api = window.__cdcMem;
+    if (!api) {
+      note("src/mem-readout.js did not load - no memory readout", "warn");
+      return;
+    }
+    memMeter = api.createMeter({
+      now: () => Date.now(),
+      store: localStorage,
+      // `performance.memory` is Chrome-only and quantised, and this repo has
+      // already established that it is blind to what actually kills the tab
+      // ([[cd-client-internals]], and [[replay-run-crash]] paid five tabs to
+      // establish it). It is here for the one thing it has that nothing else
+      // does: a stated ceiling to be a share of.
+      readHeap: () => {
+        const m = performance.memory;
+        return m ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null;
+      },
+      readGl: () => (window.__cdcGl ? window.__cdcGl.read() : null),
+      note,
+    });
+    memPanel = api.createPanel({
+      meter: memMeter,
+      layer: chordLayer,
+      makeDraggable,
+      note,
+      store: localStorage,
+      keyLabel: () => state.keys.memory.label,
+      onVisibility: syncOverlayMouse,
+    });
+
+    const previous = memMeter.lastSession();
+    if (previous && previous.died) {
+      // The whole point of writing the trace to disk: the tab that died could
+      // report nothing, so this is the first moment the fact exists at all.
+      note(
+        `the last session ended without closing - page ${previous.last.heapMb} MB, ` +
+          `textures ${previous.last.texMb} MB` +
+          (previous.last.lost ? `, context lost ${previous.last.lost}x` : ""),
+        "warn"
+      );
+    }
+
+    tickMemory();
+    // The tab going away is the mark whose *absence* means it was killed.
+    // `pagehide` rather than `beforeunload`: the latter does not fire for a
+    // bfcache navigation and is the one browsers are cutting back.
+    window.addEventListener("pagehide", () => {
+      if (memMeter) memMeter.close();
+    });
+  }
+
+  /**
+   * One sample, then book the next.
+   *
+   * `setTimeout` rather than `setInterval` so the cadence can follow the panel
+   * with no interval to tear down, and deliberately **not** rAF: a hidden tab
+   * stops getting frames, and a hidden tab is the state this readout has most
+   * reason to keep measuring - it is where the client stops disposing.
+   */
+  function tickMemory() {
+    if (!memMeter || !memPanel) return;
+    memMeter.sample();
+    memPanel.enforce();
+    memTimer = window.setTimeout(
+      tickMemory,
+      memPanel.visible() ? window.__cdcMem.SAMPLE_OPEN_MILLIS : window.__cdcMem.SAMPLE_IDLE_MILLIS
+    );
+  }
+
+  function toggleMemory(force) {
+    if (!memPanel) {
+      note("the memory readout is not wired up", "warn");
+      return false;
+    }
+    const shown = memPanel.toggle(force);
+    // The cadence follows the panel, and a toggle should not have to wait out
+    // the old one to take effect.
+    if (memTimer) window.clearTimeout(memTimer);
+    tickMemory();
+    return shown;
+  }
+
   // --- Debug HUD ------------------------------------------------------------
 
   // Shared with the hints box and the in-game player list, so it stays here and
@@ -7241,6 +7620,8 @@
         ? toggleQueues
         : matchesHotkey(e, state.keys.net)
         ? toggleNet
+        : matchesHotkey(e, state.keys.memory)
+        ? toggleMemory
         : e.code === "Escape" && state.hqFullVisible
         ? () => toggleHqFull(false)
         : null;
@@ -7263,6 +7644,29 @@
         // The build layers are consulted only in a match, and only for a press
         // carrying no Meta — which is the browser's and the OS's, never ours.
         if (!state.combatant || e.metaKey) return;
+        // **A key of ours firing a command of the client's.**
+        //
+        // Its reason for existing is `Scoreboard`, the command that opens the
+        // alliance screen: `KeyBinds#load` re-stamps it onto Tab after both the
+        // saved ini and the defaults, and `configurableCmds` leaves it out — so
+        // it cannot be moved from inside the client at all. It does not have to
+        // be: the client listens on the **document, bubbling**, and this
+        // listener is **window, capturing**, so a press consumed here never
+        // reaches it. Freeing Tab is therefore binding Tab, and a Tab nobody has
+        // bound keeps opening the alliance screen, which is the right default.
+        //
+        // Above the build layers because this is one key to one command with no
+        // fallback of its own to be shadowed by their Ctrl-strip; below the
+        // fixed hotkeys because those are the rows the extension's own features
+        // live on. A key in two of the three lists is the options page's to
+        // report, and it does.
+        const command = commandBindings().get(eventBindingId(e));
+        if (command) {
+          e.preventDefault();
+          e.stopPropagation();
+          runCommand(command);
+          return;
+        }
         // The grid layer above has already had this press. What is left is a
         // second tab press opening one, and the flat one-key-one-object table
         // underneath it.
@@ -7303,6 +7707,119 @@
     },
     true
   );
+
+  // --- the mouse ------------------------------------------------------------
+
+  /**
+   * The same routing as the keydown listener above, for the buttons a keyboard
+   * does not have.
+   *
+   * **Window, capture, `stopPropagation`** — the identical reason: the client
+   * listens on the document and this fires first, so a press taken here never
+   * reaches it. The panel toggles and the game-command bindings are asked, in
+   * that order; the build layer is deliberately not, because its modifiers are
+   * already spent (`Ctrl` queues next, `Alt` cancels, `Shift` orders five) and
+   * spending a side button's three modifiers the same way is its own decision,
+   * not a consequence of this one.
+   *
+   * Left and right are returned on untouched before anything else is asked.
+   * Left is how you click, right is the game's order, and a binding that could
+   * take either would be a binding that can break a match.
+   *
+   * **Measured before it was written** (2026-08-24, the probe in
+   * src/debug-hud.js): buttons 3 and 4 arrive while the client holds pointer
+   * lock, carry their modifiers, and `preventDefault` on the press kept the
+   * browser from navigating. What that run did *not* exercise is a **bare**
+   * back or forward, which is the press a browser would actually navigate on —
+   * so the probe stays armed, swallowing the same buttons the same way, and a
+   * navigation that ever does get through writes itself into the log at `warn`.
+   */
+  let mouseHeld = null;
+
+  window.addEventListener(
+    "mousedown",
+    (e) => {
+      if (!ourButton(e.button) || !e.isTrusted || isTyping(e.target)) return;
+      const id = mouseBindingId(e);
+
+      // The menu key, which is not a toggle: it opens, closes and steps back
+      // out of a screen. Asked through the same table the keyboard asks, with
+      // `isMenuKey` supplied here because that table recognises a key by its
+      // `code` and a mouse press has none.
+      if (CHORD_TABLES && state.gameMenu && state.keys.menu && bindingId(state.keys.menu) === id) {
+        const decided = CHORD_TABLES.menuKeyAction(e, { ...menuPressAt(e), isMenuKey: true });
+        if (decided.consume) {
+          e.preventDefault();
+          e.stopPropagation();
+          mouseHeld = e.button;
+        }
+        runMenuAction(decided.act);
+        return;
+      }
+
+      const toggles = panelToggles();
+      for (const [name, run] of Object.entries(toggles)) {
+        const bound = state.keys[name];
+        if (!bound || bindingId(bound) !== id) continue;
+        e.preventDefault();
+        e.stopPropagation();
+        mouseHeld = e.button;
+        run();
+        return;
+      }
+
+      const command = commandBindings().get(id);
+      if (command) {
+        // Swallowed whether or not there is a match to run it in: the button is
+        // the user's, and letting a bound press fall through to the browser's
+        // back navigation between matches is the one outcome nobody wants.
+        e.preventDefault();
+        e.stopPropagation();
+        mouseHeld = e.button;
+        if (!runCommand(command)) {
+          note(`${command} needs a match — the press did nothing`, "warn");
+        }
+        return;
+      }
+
+      // The build keys, on the same terms as the keyboard's: one press orders
+      // one, and `Ctrl` with nothing bound to it reaches for the bare binding
+      // and puts the order next instead of last. `Alt` and `Shift` are the
+      // grid's, not this layer's, so they are not read here — the same as for a
+      // key.
+      if (!state.combatant || e.metaKey) return;
+      const bindings = buildBindings(playerSide());
+      let bound = bindings.get(id);
+      let next = false;
+      if (!bound && e.ctrlKey) {
+        bound = bindings.get(mouseBindingId(e, { ctrl: false }));
+        next = !!bound;
+      }
+      if (!bound) return;
+      e.preventDefault();
+      e.stopPropagation();
+      mouseHeld = e.button;
+      pressName(bound, 1, next);
+    },
+    true
+  );
+
+  // The rest of a press this extension has taken. A browser acts on
+  // back/forward at the *end* of a click, so swallowing only the `mousedown`
+  // leaves the navigation to fire off the release — which is the failure this
+  // whole feature is written to avoid.
+  for (const type of ["mouseup", "auxclick", "click"]) {
+    window.addEventListener(
+      type,
+      (e) => {
+        if (mouseHeld === null || e.button !== mouseHeld) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (type !== "mouseup") mouseHeld = null;
+      },
+      true
+    );
+  }
 
   // The other half of a held key. Registered once rather than around each
   // press: a keyup with nothing pending costs a comparison, and a listener
@@ -7438,6 +7955,11 @@
     chords: chordReport,
     queues: toggleQueues,
     net: toggleNet,
+    memory: toggleMemory,
+    // The samples behind the panel, for a report from a player whose tab keeps
+    // dying: `copy(__cdc.memTrace())` is the whole curve rather than the one
+    // reading the panel happens to be showing.
+    memTrace: () => (memMeter ? { previous: memMeter.lastSession(), samples: memMeter.samples() } : null),
     overlay: toggleIngame,
     resetLayout,
     state,
@@ -7825,4 +8347,9 @@
   // Called from the config handler the moment the version lands; this is the
   // floor under it, for the tab where the bridge never replies at all.
   setTimeout(announce, 3000);
+
+  // The readout starts with the page, not with the panel: the trace is the
+  // deliverable, and a curve that begins when a player first presses the key
+  // is a curve missing the part that explains it.
+  startMemory();
 })();

@@ -907,6 +907,46 @@
   }
 
   /**
+   * Is a slot drawn as a tile, or left as a hole in the block?
+   *
+   * Two rules, and which of them applies is the user's own setting.
+   *
+   * **The whole grid** (`onlyBuildable` false, what ships): everything this
+   * country builds, orderable at this moment or not, with what cannot be
+   * ordered dimmed rather than blanked — so the key is always where the hand
+   * left it, and a dimmed tile can answer *the key is right, what is the thing
+   * waiting on?*
+   *
+   * **Only what can be built now**: a tile waiting on the tech tree is not
+   * drawn at all — a prerequisite that is not up, a factory that is gone, a
+   * stolen-tech unit before the spy has been in. What is **owned** rather than
+   * merely unlocked stays, which is the whole reason this can be one flag: an
+   * Ore Purifier or a Cloning Vats already standing is still *available* to the
+   * client, since `isAvailableForProduction` weighs tech level, factory and
+   * prerequisites and never looks at `BuildLimit` — so it draws as an ordinary
+   * tile and the build-limit dim is what says why the key is dead.
+   *
+   * A key that **aims** rather than orders is drawn either way, whatever
+   * availability says: a charged Chronosphere is the one tile on the grid that
+   * must never vanish, and the battle lab whose loss takes its building's
+   * availability with it has nothing to do with the weapon already held.
+   *
+   * Two cases are holes in both modes, and both are *never* rather than *not
+   * yet*: a slot no id of which this country builds — a German Tank Destroyer
+   * on a Korean grid — and a `sw:` slot whose weapon is not held, which has no
+   * picture to draw either, since the cameo comes off the weapon.
+   *
+   * @param {{bound: boolean, isSuperWeapon: boolean, hasWeapon: boolean,
+   *   available: boolean, uses: boolean, onlyBuildable: boolean}} at
+   */
+  function chordSlotShown(at) {
+    if (!at || !at.bound) return false;
+    if (at.isSuperWeapon) return !!at.hasWeapon;
+    if (!at.onlyBuildable) return true;
+    return !!at.available || !!at.uses;
+  }
+
+  /**
    * How many rows of the grid there is anything to draw in.
    *
    * A hidden slot keeps its cell: the grid's geometry is the keyboard's, and a
@@ -1056,6 +1096,7 @@
     chordCancelQueue,
     chordCancelAction,
     chordGridRows,
+    chordSlotShown,
     chordBadges,
     chordBadgeWeapons,
     chordScreenBox,

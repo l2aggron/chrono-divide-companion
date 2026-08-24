@@ -171,6 +171,32 @@
           <div id="keys" class="keys-list"></div>
         </section>
 
+        <!-- The other direction of the same idea: the rows above put one of our
+             panels on a key, these put one of the *client's* commands on one.
+             Its reason for existing is a command the client will not let you
+             move at all - see the lede. -->
+        <section class="setgroup">
+          <h2>Game commands</h2>
+          <p class="setlede">
+            A key of yours that fires one of the game's own commands. The
+            extension takes the press before the client sees it, which is what
+            makes this the only way to move a command the client will not
+            rebind: the alliance screen is stamped onto <kbd>Tab</kbd> every
+            time the client loads its key table, and it is missing from the
+            client's own keyboard options entirely.
+          </p>
+          <p class="setlede">
+            Binding <kbd>Tab</kbd> here is therefore what frees it — a key this
+            list claims never reaches the game. A <kbd>Tab</kbd> you have not
+            bound goes on opening the alliance screen.
+          </p>
+          <div id="commandList" class="keys-list"></div>
+          <div class="buildadd">
+            <select id="commandPick" aria-label="Game command to bind"></select>
+            <button id="commandAdd" class="keybtn" type="button">Bind a key…</button>
+          </div>
+        </section>
+
         <section class="setgroup">
           <h2>Overlay options</h2>
           <p class="setlede">
@@ -335,8 +361,9 @@
                 <em>zxcvb</em> below. The next key orders that slot, <em>Shift</em>
                 orders five of a unit, <em>Ctrl</em> puts one next, and <em>Esc</em>
                 or a click outside closes it.
-                Only keys you can order right now are drawn; the rest keep their
-                place in the block but stay blank.
+                Everything your country builds is drawn, with what cannot be
+                ordered at this moment dimmed — or, with the box below ticked,
+                only what you can order right now.
                 A structures chord pressed while a building is finished picks that
                 building up to place instead — its queue is full until you do, and
                 the tab key does the same from an <em>open</em> grid, for the
@@ -427,6 +454,31 @@
                     the feature changes — but the grid is then in the way of the
                     next key, which is the point of it and the reason this is a
                     choice rather than the default.
+                  </span>
+                </span>
+              </div>
+
+              <div class="setrow">
+                <label class="opt">
+                  <input id="prefChordBuildable" type="checkbox" />
+                  Draw only what you can build right now
+                </label>
+                <span class="help" tabindex="0" role="note" aria-label="About drawing only what can be built">?
+                  <span class="tip">
+                    Unticked, the grid draws the whole of what your country
+                    builds and dims what cannot be ordered yet — so the block of
+                    fifteen keys is the same block every time you open it, and a
+                    dimmed tile answers <em>the key is right, what is this
+                    waiting on?</em> Ticked, a key still waiting on the tech tree
+                    is not drawn at all: a prerequisite that is not up, a factory
+                    you no longer have, a unit that only a spy in the enemy
+                    battle lab unlocks — it appears on its own key the moment it
+                    becomes buildable. Its cell stays empty either way, so
+                    nothing after it moves, and a trailing row with nothing in it
+                    is dropped. What you <strong>already have</strong> is not
+                    hidden but dimmed: an Ore Purifier or a Cloning Vats at its
+                    build limit is a thing you own rather than a thing you are
+                    waiting for, and so is a superweapon you are holding.
                   </span>
                 </span>
               </div>

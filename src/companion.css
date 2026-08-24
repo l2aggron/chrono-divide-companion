@@ -654,13 +654,28 @@
   opacity: 0.6;
 }
 
-/* No room for another one: the queue is at its size, or this object is at its
-   per-type cap. A different fact from .cdc-chord-off — that one means never,
-   this one means not until something leaves — and the tile stays live, because
-   a full queue is exactly where a cancel is wanted. */
+/* No room for another one: the queue is at its size, this object is at its
+   per-type cap, or its `BuildLimit` is spent — the Ore Purifier and the Cloning
+   Vats you already have. A different fact from .cdc-chord-off, which is the
+   tech tree not being there yet; this one is a thing you own being the reason,
+   and the tile stays live, because a full queue is exactly where a cancel is
+   wanted. It is also the one dim the "only what can be built now" setting never
+   hides, since what is standing is not what a grid is hiding. */
 .cdc-chord-full {
   filter: grayscale(0.85);
   opacity: 0.55;
+}
+
+/* Hidden by the "only what can be built now" setting: this key is waiting on
+   the tech tree — a prerequisite, a factory, a spy who has not been in yet.
+
+   `visibility` rather than `display`, and not a missing element at all, for the
+   same reason .cdc-chord-gap exists: the cell has to stay, or the block of
+   fifteen keys stops standing for the block under the hand. Invisible also
+   means untouchable, which is what keeps a hidden tile out of the way of the
+   cursor and out of elementFromPoint. */
+.cdc-chord-hidden {
+  visibility: hidden;
 }
 
 /* A key that no longer orders anything: it aims a superweapon. Blue rather than
@@ -871,9 +886,13 @@
   font-size: 11px;
 }
 
-/* The net readout — the production panel's shape, since it is the same kind of
-   thing: a small floating panel of live numbers, dragged where you want it. */
-.cdc-net {
+/* The net readout and the memory readout — the production panel's shape, since
+   they are the same kind of thing: a small floating panel of live numbers,
+   dragged where you want it. Grouped rather than copied; the only rules the
+   memory panel has to itself are the two it has that the net panel does not,
+   at the end of this block. */
+.cdc-net,
+.cdc-mem {
   position: fixed;
   pointer-events: auto;
   z-index: 1;
@@ -886,7 +905,8 @@
   cursor: move;
 }
 
-.cdc-net-head {
+.cdc-net-head,
+.cdc-mem-head {
   display: flex;
   justify-content: space-between;
   gap: 14px;
@@ -897,47 +917,82 @@
   font-size: 10px;
 }
 
-.cdc-net-hint {
+.cdc-net-hint,
+.cdc-mem-hint {
   color: rgba(255, 224, 160, 0.5);
 }
 
-.cdc-net-body {
+.cdc-net-body,
+.cdc-mem-body {
   padding: 3px 7px 5px;
 }
 
-.cdc-net-row {
+.cdc-net-row,
+.cdc-mem-row {
   display: flex;
   align-items: baseline;
   gap: 6px;
 }
 
-.cdc-net-label {
+.cdc-net-label,
+.cdc-mem-label {
   min-width: 46px;
   color: rgba(255, 224, 160, 0.6);
 }
 
-.cdc-net-value {
+.cdc-net-value,
+.cdc-mem-value {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
 
 /* The client's own three bands (gui/component/PingIndicator), in its own
    colours: green under 100ms, yellow under 250, red past it. */
-.cdc-net-good {
+.cdc-net-good,
+.cdc-mem-good {
   color: #7bd97b;
 }
 
-.cdc-net-avg {
+.cdc-net-avg,
+.cdc-mem-avg {
   color: #ffe000;
 }
 
-.cdc-net-bad {
+.cdc-net-bad,
+.cdc-mem-bad {
   color: #ff6b5a;
 }
 
-.cdc-net-note {
+.cdc-net-note,
+.cdc-mem-note {
   color: rgba(255, 224, 160, 0.45);
   font-size: 11px;
+}
+
+/* The memory panel's own three. The alarm line is the reason the panel opened
+   itself, so it is the loudest thing in the box; the footer and the previous
+   session's epitaph are the opposite — facts that qualify the numbers above
+   them and must not compete with them. */
+.cdc-mem-alarm {
+  margin: 0 -7px 4px;
+  padding: 3px 7px;
+  background: rgba(255, 60, 40, 0.22);
+  color: #ff8f7a;
+  font-weight: 600;
+}
+
+.cdc-mem-foot {
+  margin-top: 4px;
+  color: rgba(255, 224, 160, 0.35);
+  font-size: 10px;
+}
+
+.cdc-mem-previous {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid rgba(255, 224, 0, 0.2);
+  color: #ffe000;
+  font-size: 10px;
 }
 
 .cdc-net-none {

@@ -72,6 +72,7 @@ const {
   chordCancelAction,
   CANCEL_MANY,
   chordGridRows,
+  chordSlotShown,
   chordPlacement,
   chordResolve,
   chordBadges,
@@ -1276,6 +1277,8 @@ const fixedKeys = [...keyBlock.matchAll(/^\s{4}(\w+):\s*\{([^}]*)\}/gm)].map(([,
   name,
   code: (body.match(/code:\s*"(\w+)"/) || [])[1] || "",
   ctrl: /ctrl:\s*true/.test(body),
+  alt: /alt:\s*true/.test(body),
+  shift: /shift:\s*true/.test(body),
 }));
 const onBlock = fixedKeys.filter((key) => GRID_KEYS.includes(key.code));
 check(
@@ -1294,40 +1297,51 @@ check(
   onCtrl.length ? onCtrl.map((k) => k.name).join(", ") : "no Ctrl among the fixed hotkeys"
 );
 
-// --- what a bare-digit default costs, and what it does not --------------------
+// --- what the Alt defaults cost, and what they do not -------------------------
 //
-// 0.66.0 put the five shipped defaults on bare digits: on a split keyboard whose
-// digits live on a layer, `Alt+1` is three keys where `1` is two, and once the
-// grid's block and the right half are both excluded there is nothing else left.
-// The cost is real and belongs in a check rather than in prose only — a bare key
-// is taken from the game, and the game uses these for team select.
+// 0.101.0 moved the shipped defaults off bare digits (0.66.0-0.100.0) and
+// onto `Alt` + the right hand. The move is a subtraction and is checked as one.
+// A bare key is taken from the game by construction — our listener is capture +
+// `stopPropagation` — and the digits were the client's own team select, so a
+// stock install lost it. `Alt`+letter is the only space the client's default
+// table leaves empty: `Alt+M` is `ToggleMarbleMadness`, which is in the enum and
+// never passed to `registerKeyCommand`, and `Alt+S` is registered only while
+// cheats are on.
 //
-// What it must NOT cost is the *modified* press. `matchesHotkey` compares the
-// whole modifier state rather than ignoring extras, which is the only reason
-// Ctrl+1 still reaches the client to assign a group. That is the invariant this
-// arrangement stands on, so it is exercised rather than asserted.
+// What the arrangement stands on is that `matchesHotkey` compares the whole
+// modifier state rather than ignoring extras. That is what leaves the *bare*
+// letter to the client — `N` still steps to the next object — and what keeps
+// AltGr off our bindings, since Chrome reports it as ctrl+alt. Exercised rather
+// than asserted.
 
-const digits = fixedKeys.filter((key) => /^Digit\d$/.test(key.code));
+const onAlt = fixedKeys.filter((key) => key.alt && !key.ctrl && !key.shift);
 check(
-  "the shipped defaults are bare digits — the trade the split keyboard bought",
-  digits.length === fixedKeys.length && !keyBlock.includes("alt: true") && !keyBlock.includes("shift: true"),
-  `${digits.length}/${fixedKeys.length} on digits, no modifier among them`
+  "every shipped default is Alt and only Alt — no bare key is taken from the game",
+  onAlt.length === fixedKeys.length,
+  `${onAlt.length}/${fixedKeys.length} on a lone Alt`
+);
+const onDigits = fixedKeys.filter((key) => /^Digit\d$/.test(key.code));
+check(
+  "and none is on a digit, which is team select under every modifier the client has",
+  onDigits.length === 0,
+  onDigits.length ? onDigits.map((k) => k.name).join(", ") : "no digit among the fixed hotkeys"
 );
 
 const { matchesHotkey } = new Function(`${sliceFn("matchesHotkey")} return { matchesHotkey };`)();
-const bareDigit = { code: "Digit1", alt: false, shift: false, ctrl: false };
-const pressed = (over) => ({ code: "Digit1", altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, ...over });
+const altLetter = { code: "KeyN", alt: true, shift: false, ctrl: false };
+const pressed = (over) => ({ code: "KeyN", altKey: true, shiftKey: false, ctrlKey: false, metaKey: false, ...over });
 const MODIFIED = [
-  ["a bare press is ours", pressed(), true],
-  ["Ctrl+1 is the client's — assigning a team group still works", pressed({ ctrlKey: true }), false],
-  ["Shift+1 is the client's too", pressed({ shiftKey: true }), false],
-  ["and Alt+1", pressed({ altKey: true }), false],
+  ["the Alt press is ours", pressed(), true],
+  ["a bare N is the client's — NextObject still works", pressed({ altKey: false }), false],
+  ["Ctrl+Alt is AltGr on a German layout, and never ours", pressed({ ctrlKey: true }), false],
+  ["Alt+Shift is the Windows layout switch, likewise", pressed({ shiftKey: true }), false],
   ["Meta is never ours", pressed({ metaKey: true }), false],
-  ["another digit is another key", pressed({ code: "Digit2" }), false],
+  ["another letter is another key", pressed({ code: "KeyM" }), false],
 ];
 for (const [name, event, want] of MODIFIED) {
-  check(`bare digit — ${name}`, matchesHotkey(event, bareDigit) === want, String(matchesHotkey(event, bareDigit)));
+  check(`Alt default — ${name}`, matchesHotkey(event, altLetter) === want, String(matchesHotkey(event, altLetter)));
 }
+
 // --- an overlay that is meant to be used has to be able to receive a mouse ---
 //
 // 0.54.0 moved both of these onto `document.body`, and they stopped taking
@@ -1460,17 +1474,81 @@ check(
 // 0.71.0 turned the grid's visibility rule around: what cannot be ordered is
 // dimmed, not blanked. Only *never* is a hole — a slot no id of which this
 // country builds (chordResolve returns ""), and a paradrop whose building
-// nobody has. Everything else draws, and .cdc-chord-off says which.
+// nobody has. Everything else draws, and .cdc-chord-off says which. 0.99.0 made
+// the second half of that a setting, so the rule is a function with a truth
+// table rather than four lines inside a render.
+//
+// `bound` false is the country hole; a `sw:` slot is drawn only with its weapon
+// in hand; `uses` is a key that aims rather than orders, which is never hidden;
+// and `available` is the client's own getAvailableObjects(), which answers the
+// tech tree and deliberately does NOT answer a build limit — a thing you own is
+// dimmed by .cdc-chord-full, not hidden.
+const SHOWN = [
+  ["a slot this country builds nothing of is a hole in both modes", { bound: false }, false, false],
+  ["an ordinary key draws whole-grid, orderable or not", { bound: true, available: false }, true, false],
+  ["and draws in either mode once it is orderable", { bound: true, available: true }, true, true],
+  [
+    "a sw: slot is drawn only with the weapon in hand",
+    { bound: true, isSuperWeapon: true, hasWeapon: false, available: true },
+    false,
+    false,
+  ],
+  [
+    "a sw: slot with the weapon draws in both modes",
+    { bound: true, isSuperWeapon: true, hasWeapon: true, available: false },
+    true,
+    true,
+  ],
+  [
+    "a key that aims is never hidden, whatever availability says",
+    { bound: true, uses: true, available: false },
+    true,
+    true,
+  ],
+];
+for (const [name, at, whole, only] of SHOWN) {
+  const gotWhole = chordSlotShown({ ...at, onlyBuildable: false });
+  const gotOnly = chordSlotShown({ ...at, onlyBuildable: true });
+  check(
+    `grid visibility — ${name}`,
+    gotWhole === whole && gotOnly === only,
+    `whole grid ${gotWhole}, only-buildable ${gotOnly}`
+  );
+}
 check(
-  "only what this country can never have is a hole; the rest of the grid draws",
-  /const shown = names\.map\(\(name\) => \{\s*if \(!name\) return false;\s*if \(CHORD_TABLES\.chordIsSuperWeapon\(name\)\) return !!slotSuperWeapon\(name, null\);\s*return true;/.test(
+  "the render feeds that rule twice — the cells it draws, and what is visible now",
+  /const drawn = names\.map\(\(_, slot\) => slotShown\(slot, false\)\);\s*const live = names\.map\(\(_, slot\) => slotShown\(slot, onlyBuildable\)\);\s*const rows = CHORD_TABLES\.chordGridRows\(live, GRID_COLS\)/.test(
+    companion
+  ) && /if \(!drawn\[slot\]\) \{\s*const gap = document\.createElement\("i"\)/.test(companion),
+  "every cell of the whole grid is built; only the trailing rows follow the setting"
+);
+check(
+  "a hidden tile keeps its cell and can come back without reopening the grid",
+  /tile\.classList\.toggle\(\s*"cdc-chord-hidden",\s*onlyBuildable && !available\.has\(name\) && !tile\.classList\.contains\("cdc-chord-super"\)/.test(
+    companion
+  ) && /\.cdc-chord-hidden \{\s*visibility: hidden;/.test(css),
+  "paintChordQueues toggles it every paint, and the sheet hides it without dropping the cell"
+);
+// The clamp the extension did not have. isAvailableForProduction never looks at
+// BuildLimit — the client checks it in UpdateQueueAction as the order runs — so
+// an Ore Purifier already standing stayed bright and pressed into silence.
+check(
+  "a build limit closes the room a press is clamped to, like the client's own",
+  /room: Math\.min\(\s*at\.maxSize - at\.currentSize,\s*at\.maxItemQuantity - queued,\s*buildLimitRoom\(object, queued\)/.test(
+    companion
+  ) && /function buildLimitRoom\(rules, queued\)[\s\S]{0,900}Math\.max\(0, Math\.abs\(limit\) - \(built \+ queued\)\)/.test(companion),
+  "queueStateFor clamps on it, so .cdc-chord-full dims a limited building"
+);
+check(
+  "and a press that runs out of it says which nought it hit",
+  /buildLimitRoom\(object, at\.queued\) <= 0[\s\S]{0,200}you have all of those you may build/.test(
     companion
   ),
-  "an unbuildable id is drawn dimmed rather than left out"
+  "a build limit is not a full queue, and the remedy differs"
 );
 check(
   "and not-orderable is painted, not rendered — it changes under an open grid",
-  /const available = availableNames\(\);[\s\S]{0,1200}tile\.classList\.toggle\("cdc-chord-off", !available\.has\(name\)\)/.test(
+  /const available = availableNames\(\);[\s\S]{0,2400}tile\.classList\.toggle\("cdc-chord-off", !available\.has\(name\)\)/.test(
     companion
   ) && /tile\.classList\.toggle\("cdc-chord-off", !at \|\| at\.status !== "ready"\)/.test(companion),
   "paintChordQueues re-asks availableNames(), and paintCharge dims an uncharged weapon"
@@ -1693,7 +1771,7 @@ const menuAt = (over) => ({
   ...over,
 });
 const escape = press({ code: "Escape", key: "Escape" });
-const ourKey = press({ code: "Digit5", key: "5" });
+const ourKey = press({ code: "KeyM", key: "m", altKey: true });
 const MENU_CASES = [
   ["our key opens the menu", ourKey, menuAt({ isMenuKey: true }), { act: "open", consume: true }],
   [
@@ -1728,7 +1806,7 @@ const MENU_CASES = [
   ],
   [
     "a held menu key opens one menu",
-    press({ code: "Digit5", key: "5", repeat: true }),
+    press({ code: "KeyM", key: "m", altKey: true, repeat: true }),
     menuAt({ isMenuKey: true }),
     { act: "pass", consume: true },
   ],
@@ -1836,7 +1914,7 @@ check(
   const seen = new Map();
   const clashes = [];
   for (const key of fixedKeys) {
-    const id = `${key.code}|${key.ctrl ? 1 : 0}`;
+    const id = `${key.code}|${key.ctrl ? 1 : 0}${key.alt ? 1 : 0}${key.shift ? 1 : 0}`;
     if (seen.has(id)) clashes.push(`${key.name} and ${seen.get(id)} are both on ${key.code}`);
     seen.set(id, key.name);
   }

@@ -44,7 +44,11 @@ const check = (name, ok, detail) =>
 // --- the section, verbatim ----------------------------------------------------
 
 const START = "  // --- The net readout ---";
-const END = "  // --- Debug HUD ---";
+// The memory readout was inserted between the two 0.100.0, and the slice was
+// silently taking it with it — a check quietly exercising a hundred lines it
+// makes no assertion about. The boundary is whatever section comes next, so
+// it is named here rather than left as the last one that happened to be.
+const END = "  // --- The memory readout ---";
 const from = companion.indexOf(START);
 const to = companion.indexOf(END);
 if (from < 0 || to < 0 || to < from) {

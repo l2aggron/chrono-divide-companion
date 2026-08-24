@@ -3,42 +3,80 @@
 A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 [Chrono Divide](https://game.chronodivide.com/) loading screen:
 
-- **Faction labels** next to every player — the country name in text, instead of a flag you have to recognise.
-- **Hints** — derived from the map (start positions, size, theater) plus your own per-map notes, edited in the options page.
-- **Map preview** — our own render of the map where there is one, the map's baked-in thumbnail otherwise, shown during loading (the client already renders a preview in the lobby; the loading screen does not).
-- **In-game overlay** on `1` — the same roster, map facts and hint, with the preview over the radar.
-- **Build hotkeys** — a key that queues one of something, which the game has none of. One press is one
-  cameo click; placement stays yours.
-- **Build chords** — press a sidebar-tab key twice quickly (or once, by preference) and that tab opens
-  as a grid of cameos under the cursor, laid out like the `qwert`/`asdfg`/`zxcvb` block itself. The next
-  key orders that slot. Only what you can order right now is drawn. Every tile carries what its queue
-  holds — how many are ordered, and how far the one being built has got — and a right click on one
-  pauses or cancels it.
-- **Cancel keys** — `Alt` and a sidebar-tab key pauses what that tab is building and cancels it on the
-  second press, without opening anything; `Alt+Shift` cancels five. Alt is the cancel everywhere:
-  on a slot of an open grid it is that slot instead.
-- **Queue next** — `Ctrl` on a build key or a grid slot puts the order **behind what is being built**
-  rather than at the back of the queue. It is the game's own Ctrl+click on a cameo, which the game
-  gives no key of its own. `Ctrl+W` and `Ctrl+T` are the browser's, so holding them takes a keyboard
-  lock, which is a setting.
-- **Superweapon keys** — once you own a superweapon, its building's key aims it instead of ordering
-  another building that would grant nothing. The two paradrops have keys of their own. Aiming is the
-  client's own targeting mode: you still click the target.
-- **Production panel** on `2` — all six queues at once, including the empty ones, which the sidebar
-  cannot show because it only ever draws the tab you are looking at.
-- **The game's menu off Escape**, onto `5` — in a match Escape is the game's own key for the menu
-  whose third button is *Abort Mission*, which is a reflex and a click away from quitting. It now
-  opens on a key you pressed on purpose, and Escape closes it instead — which the game itself binds
-  no key to at all.
-- **Net readout** on `7` — ping, how long your own orders take to come back, frames a second, the
-  lockstep's turn length and every player's ping. The client draws these as graphs on `Ctrl+R`; this
-  reads the same sources and writes them as text, including the two it computes and never shows.
-- **No waiting on the lockstep.** The game applies an order a few network turns after the press, and
-  the overlay used to *read* the queue to decide what the next press meant — so a second press inside
-  that window decided against a state it had already changed, and a cancel could come out as a second
-  pause. The overlay now keeps its own copy of what it has ordered, so the keys and the tiles both see
-  the queue as it will be. One press is still one action.
-
+- **Faction labels** next to every player — the country name in text, instead
+  of a flag you have to recognise.
+- **Hints** — derived from the map (start positions, size, theater) plus your
+  own per-map notes, edited in the options page.
+- **Map preview** — our own render of the map where there is one, the map's
+  baked-in thumbnail otherwise, shown during loading (the client already
+  renders a preview in the lobby, and the loading screen does not).
+- **In-game overlay** — the same roster, map facts and hint, with the preview
+  over the radar, on a key of yours.
+- **Build hotkeys** — a key that queues one of something, which the game has
+  none of. One press is one cameo click. Placement stays yours.
+- **Game commands on our keys** — a key of yours that fires one of the
+  *client's* own commands. It is the only way to move a command the client will
+  not rebind: the alliance screen is stamped onto `Tab` every time the client
+  loads its key table, and is missing from its keyboard options entirely.
+  Binding `Tab` here is what frees it.
+- **Mouse buttons as bindings** — a mouse press binds wherever a key does,
+  build orders included. Buttons 3 and up, bare or with modifiers. Left, middle
+  and right are never offered.
+- **Build chords** — press a sidebar-tab key twice quickly (or once, by
+  preference) and that tab opens as a grid of cameos under the cursor, laid out
+  like the `qwert`/`asdfg`/`zxcvb` block itself. The next key orders that slot.
+  Only what you can order right now is drawn. Every tile carries what its queue
+  holds — how many are ordered, and how far the one being built has got — and a
+  right click on one pauses or cancels it.
+- **Cancel keys** — `Alt` and a sidebar-tab key pauses what that tab is
+  building and cancels it on the second press, without opening anything.
+  `Alt+Shift` cancels five. Alt is the cancel everywhere: on a slot of an open
+  grid it is that slot instead.
+- **Queue next** — `Ctrl` on a build key or a grid slot puts the order **behind
+  what is being built** rather than at the back of the queue. It is the game's
+  own Ctrl+click on a cameo, which the game gives no key of its own. `Ctrl+W`
+  and `Ctrl+T` are the browser's, so holding them takes a keyboard lock, which
+  is a setting.
+- **Superweapon keys** — once you own a superweapon, its building's key aims it
+  instead of ordering another building that would grant nothing. The two
+  paradrops have keys of their own. Aiming is the client's own targeting mode:
+  you still click the target.
+- **Production panel** — all six queues at once, including the empty ones,
+  which the sidebar cannot show because it only ever draws the tab you are
+  looking at.
+- **The game's menu off Escape** — in a match Escape is the game's own key for
+  the menu whose third button is *Abort Mission*, which is a reflex and a click
+  away from quitting. It moves to a key of yours, so it opens on a press you
+  meant, and Escape closes it instead — which the game itself binds no key to at
+  all.
+- **Net readout** — ping, how long your own orders take to come back, frames a
+  second, the lockstep's turn length and every player's ping. The client draws
+  these as graphs on `Ctrl+R`. This reads the same sources and writes them as
+  text, including the two it computes and never shows.
+- **Memory readout**, and **it opens itself when something is wrong** — what
+  this tab is holding, in megabytes, with the trend over the last quarter of an
+  hour. The page's own memory is the smaller half of the
+  story: what actually fills up in a long match is graphics memory, which no
+  browser reports to a page at all, so the extension counts it at the WebGL
+  calls that allocate it. It keeps its readings across a crash, so a tab that
+  is killed can still say what it was holding.
+- **The panels above open on keys you set in the options page, and this README
+  does not print them.** A key named here would be right only until somebody
+  rebound it, and eventually wrong for everyone. What ships is `Alt` and a
+  right-hand letter, because the client's own default table leaves nothing else
+  genuinely free: a bare digit is its team select, `Shift` and `Ctrl` and `Alt`
+  on a digit are the other three team commands, and almost every bare letter is
+  a live order. `Alt`+letter is the one space it never uses. The letters are the
+  right hand's because the left one is spent: an open build grid takes the whole
+  `qwert`/`asdfg`/`zxcvb` block under every modifier, and the grid is the one
+  thing here whose keys this README does name — its layout **is** the
+  keyboard's. Which letter opens what is `DEFAULT_KEYS` in `src/companion.js`.
+- **No waiting on the lockstep.** The game applies an order a few network turns
+  after the press, so an overlay that *read* the queue to decide what the next
+  press meant would decide against a state it had already changed — and a
+  cancel would come out as a second pause. The overlay keeps its own copy of
+  what it has ordered instead, so the keys and the tiles both see the queue as
+  it will be. One press is still one action.
 - **Player colours** — who is painted what, whatever they picked in the lobby: you, your
   allies, and each opponent in turn. The game repaints itself — units, buildings, radar
   blips, health bars — and nothing is sent to anyone else.
@@ -48,98 +86,99 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
   localStorage, so a second browser starts blank and there is nothing on disk to
   copy. One file carries both, next to the extension's own bindings.
 
-## Why an extension and not a CD mod
+## Contents
 
-The official [mod SDK](https://github.com/chronodivide/mod-sdk) covers `rules.ini`,
-`art.ini`, maps, the splash PNG and the menu video. It explicitly **cannot**
-change UI/HTML/CSS and cannot ship scripts. Everything here is UI, so it lives
-browser-side.
+**In a match**
 
-This is an unofficial, client-only extension. Most of it is an overlay: it
-renders extra information from state the client already holds, and adds nothing
-to what the client sends.
+- [Keys](#keys)
+- [In-game overlay](#in-game-overlay)
+- [Build hotkeys](#build-hotkeys)
+- [The lag, and why a press does not wait for
+  it](#the-lag-and-why-a-press-does-not-wait-for-it)
+- [Build chords](#build-chords)
+- [Game commands on our keys](#game-commands-on-our-keys)
+- [Mouse buttons](#mouse-buttons)
+- [The production panel](#the-production-panel)
+- [The net readout](#the-net-readout)
+- [Memory readout](#memory-readout)
+- [Player colours](#player-colours)
 
-**Build hotkeys and chords are the exception, and they are worth stating
-plainly.** A bound key pushes a queue order into the client's own action queue —
-the same order, serialised the same way, that clicking the cameo sends. So the
-extension does reach gameplay at that one point: it gives the sidebar a
-keyboard, which RA2 and Chrono Divide never had. A chord is the same press
-reached through two keys instead of one, and Shift on a unit is the client's own
-five — the quantity a shift-click has always sent. It does not decide what to build, place anything, read
-anything the game hides from you, or act while you are not pressing a key. What
-that is worth on a ladder whose [rules](https://chronodivide.com/ladder-rules.html)
-ban "any kind of cheats" without naming third-party tools either way is a
-judgement the person installing it makes; the extension states what it does
-rather than deciding for them.
+**On the options page**
 
-## How it hooks in
+- [Per-map guides](#per-map-guides)
+- [The render in the UI](#the-render-in-the-ui)
+- [Full map render](#full-map-render)
+- [Settings backup](#settings-backup)
 
-The CD client is a React DOM UI on top of a three.js canvas, loaded through
-SystemJS with **named internal modules** (`gui/screen/game/loadingScreen/LoadingScreen`,
-`game/map/MapFile`, …). Two consequences:
+**How it works**
 
-1. The loading screen is real DOM (`.loading-screen`, `.player-status`,
-   `.player-country-icon`, `.map-name`) — injectable and observable.
-2. `System.import("<module name>")` reaches the client's own classes, so the
-   extension reuses the client's decoders instead of reimplementing them.
+- [Why an extension and not a CD mod](#why-an-extension-and-not-a-cd-mod)
+- [How it hooks in](#how-it-hooks-in)
 
-Both require page-world access, so the content script is declared
-`"world": "MAIN"`. Everything the extension knows about the client's internals
-was read out of its own bundle at v0.83.3, and the module names and call shapes
-are quoted in the source files that use them.
+**Building it, and finding out what it did**
 
-## Install (development)
+- [Install (development)](#install-development)
+- [Packaging for the stores](#packaging-for-the-stores)
+- [Diagnosing it](#diagnosing-it)
 
-1. `chrome://extensions` → enable **Developer mode**.
-2. **Load unpacked** → select this repo's root (or `dist/<name>-<version>/`, which is what the stores get — see **Packaging for the stores**).
-3. Open <https://game.chronodivide.com/> and start a game.
+**Terms**
 
-## Packaging for the stores
+- [Status](#status)
+- [Not affiliated, and what is whose](#not-affiliated-and-what-is-whose)
+- [Compatibility](#compatibility)
 
-```
-node scripts/gen-icon.mjs     # icons/icon-{16,32,48,128}.png + store/logo-300.png
-node scripts/pack.mjs         # dist/<name>-<version>/ + dist/<name>-<version>.zip
-```
+## Keys
 
-Upload the zip. `dist/<name>-<version>/` is the same file list unpacked, so
-**Load unpacked** on it tests exactly what the store gets rather than what the
-repo happens to contain.
+**The build grid is the only thing this README names by key, and that is on
+purpose.** Everything else opens on a key you set under **Settings** in the
+options page, so a name printed here would be right only until somebody rebound
+it — and there is no reason to think anybody kept the shipped one. What ships is
+`Alt` and a right-hand letter, for the reasons under
+[Build chords](#build-chords). Which letter is which is `DEFAULT_KEYS` in
+`src/companion.js`, and the options page is what the running build obeys.
 
-**The package is an allowlist** — `manifest.json`, `src/`, `icons/`, nothing
-else. The extension's root is the repository's root, so a `zip -r .` here would
-ship the whole working repository — notes, records, generator inputs, everything
-that is not the extension — into a public listing; that is a disclosure rather
-than a size problem, and no `.gitignore` rule catches it because those files are
-tracked on purpose.
+The grid is named because its layout **is** the keyboard's: `qq` and a slot
+letter are the shape of the feature rather than a preference about it. Even
+there the prefixes are read from the client's live binding table rather than
+hardcoded, so rebinding your sidebar tabs moves the chords with them.
 
-Three guards fail the build rather than warn:
+What you can bind:
 
-| guard | what it catches |
+| | What it opens |
 |---|---|
-| manifest sweep | a path the manifest names that is not in the package — `load unpacked` substitutes a placeholder icon, the store rejects the upload |
-| link sweep | a `src`/`href` on the options page that does not resolve, or that is absolute |
-| leak sweep | a Windows user directory, `AppData`, the operator's user name, an email, an extension id, a `Program Files` path — the same list the site build sweeps its own output for |
+| the [in-game overlay](#in-game-overlay) | roster, map facts, hint, and the preview over the radar |
+| the [production panel](#the-production-panel) | all six queues, the empty ones included |
+| the [net readout](#the-net-readout) | ping, order latency, frames, turn length, every player's ping |
+| the [memory readout](#memory-readout) | what the tab is holding. It also opens itself when something is wrong |
+| the preview swap | swaps both previews between the client's picture and ours, and keeps the answer |
+| the full render | the whole render over the game, 90% of the viewport, translucent. Click anywhere or press Esc to dismiss |
+| the game's own menu | moved off Escape (a setting). Press the key again, or Escape, to leave |
+| the game's own fullscreen | moved off the client's `Alt+F` (a setting) |
 
-`--dry` runs all three and writes nothing; `--force` overwrites a build of a
-version already packaged, which is otherwise refused because neither store lets
-a version be re-uploaded.
+`Esc` is the one fixed key, and it is the client's rather than ours: it closes
+the game's menu, or the full render. In a match with neither on screen it does
+nothing.
 
-The icon is one SVG in `scripts/gen-icon.mjs`, rendered at each size rather than
-drawn large and downscaled — a 2px stroke downscaled to 16px is grey fog.
-`--check` re-renders to a temp directory and diffs, so a committed PNG that no
-longer matches the shape is a failure rather than a surprise.
+The build keys, which are the sidebar given a keyboard:
 
-**Still owed to the listings, and not automatable here:** screenshots, the
-per-permission justifications, the single-purpose statement, and the data-usage
-disclosure (the extension stores everything in `chrome.storage.local` and
-transmits nothing, but the form is mandatory either way).
+| Key | What it does |
+|---|---|
+| **a bound build key** | queues one of that object. `Ctrl` puts it behind what is being built, `Shift` orders five, holding it fills the queue |
+| **qq · ww · ee · rr** | opens that sidebar tab as a [grid of cameos](#build-chords) under the cursor. One press instead of two is a setting |
+| **a slot key** | orders that slot. `Shift` orders five. Held for about half a second it fills the queue |
+| **Alt+slot key** | pauses what that slot is building, and cancels it on the second press. `Alt+Shift` cancels five, `Alt` held cancels the lot |
+| **Alt+q · w · e · r** | the same pause-then-cancel aimed at what that tab is building, without opening the grid. A finished building cancels at once |
+| **Alt+Shift+q · w · e · r** | cancels five, sending the pause first if the queue was still running |
+| **right click on a tile** | pauses what is building, or cancels one of what is queued. `Shift` cancels all of them |
+| **the key of a superweapon you own** | aims it. That is the client's own targeting mode, so you still click the target |
+| **wwt (America) · wwg** | the two paradrops, which have no building key of their own |
 
 ## In-game overlay
 
-**`1`** toggles an overlay during the match: the map preview sits on top of the
-client's radar, and a two-row bar at the top carries the roster on the left
-(each player on his own line — you / ally / opp, name, faction, in their player
-colour) with the map facts over the current hint on the right.
+**Its key** toggles an overlay during the match. The map preview sits on top of
+the client's radar. A two-row bar at the top carries the roster on the left, one
+player to a line — you / ally / opp, name, faction, in their player colour — with
+the map facts over the current hint on the right.
 
 The you/ally/opp marks appear only when the local player can be identified with
 certainty (`countryName` matches exactly one player). When two players picked
@@ -152,7 +191,7 @@ The client's own `KeyCommandType` has no build command — the sidebar is mouse
 only — so a key that queues something is the one thing here the game cannot
 already do. Bind them under **Settings** → *Build hotkeys*: pick an
 object, press a combination, and in a match that key queues one of it. Placement
-is untouched; a building still waits for you to click a tile.
+is untouched. A building still waits for you to click a tile.
 
 Bindings are **per side**, because the sides do not build the same things, and
 the panel offers what the client says that side can build. A key bound to
@@ -175,8 +214,8 @@ That last one is why this cannot desync a match: the action is the one the mouse
 produces, so every client processes it identically, and an order that should not
 have been accepted is dropped everywhere at once.
 
-**`Ctrl` on a build key queues it next** (0.70.0) — behind whatever the queue is
-paying for, rather than at the back of it. See *Queue next* below; it is the same
+**`Ctrl` on a build key queues it next** — behind whatever the queue is
+paying for, rather than at the back of it. See *Queue next* below. It is the same
 modifier on the chord grid, and the same client action either way. A binding that
 *includes* Ctrl still wins on its own key: the bare binding is only reached for
 when nothing is bound to the press as it came.
@@ -210,17 +249,17 @@ class of thing on the other keys: fast presses queueing past the room the queue
 had, and a key pressed on a queue that had just turned ready ordering a second
 building instead of placing the finished one.
 
-**Since 0.68.0 the overlay keeps its own copy.** Every action it pushes goes into
-a ledger and is laid over the client's reading, so a decision and a tile both see
-the queue as it *will* be. One press is still exactly one action — nothing is
-held back or batched, and the first press leaves as fast as it ever did.
+**So the overlay keeps its own copy.** Every action it pushes goes into a ledger
+and is laid over the client's reading, so a decision and a tile both see the
+queue as it *will* be. One press is still exactly one action: nothing is held
+back or batched, and the first press leaves at once.
 
 The ledger retires an action when the client's own state moves to what it
 predicted, which is as soon as the turn carrying it runs. Two things it
 deliberately does not do:
 
 - **It does not cry foul when the queue moves on its own.** A unit leaving the
-  factory while an order is in flight is routine, not a refusal; the reading
+  factory while an order is in flight is routine, not a refusal. The reading
   becomes the new starting point and the prediction goes on top of it.
 - **It does not guess about a refusal.** `UpdateQueueAction#process` re-checks
   availability as it runs, so an order that stopped being legal between the press
@@ -260,10 +299,10 @@ So `qq` is *buildings*, and `qqq` is a power plant, `qqw` a barracks, `qqe` a
 refinery. **Shift** orders five of a unit — the client's own shift-click
 quantity — **holding** a slot key fills its queue, **Alt** on a slot cancels
 what that slot is building, **Ctrl** on a slot orders it *next*, and `Esc` or a
-click anywhere outside closes the grid. Ctrl closed it until 0.70.0 and no longer
-does: the modifier was worth more than the second way out.
+click anywhere outside closes the grid. Ctrl does not close it — the modifier
+is worth more as *order this next*.
 A buildings grid closes itself after an order, since that queue holds one item
-anyway; a units grid stays open so the next order is one key. And when the
+anyway. A units grid stays open so the next order is one key. And when the
 building on a grid you are watching **finishes**, the tab key that opened it
 places it, rather than ordering the slot it sits on — the rule below.
 
@@ -274,26 +313,45 @@ is simply in the way of the next key — which is the point of it, and why the
 double tap is still the default.
 
 **The first press is still the game's.** It is not swallowed and not delayed: the
-client switches the tab exactly as it always did, and the extension only notices
-that it happened. That is also why the prefix is read from the client's live
+client switches the tab exactly as it does without the extension, which only
+notices that it happened. That is also why the prefix is read from the client's live
 binding table rather than hardcoded — rebind your tabs and the chords move with
 them, and the grid can never open on a different tab from the one the first
 press just selected.
 
-**What cannot be ordered is dimmed, not hidden** (0.71.0). The grid drew only
-what a press would order from 0.59.0, and the cost was that its shape changed
-under the hand between two openings — and that the one question a greyed tile
-answers, *the key is right, so what is the thing waiting on?*, could not be asked
-at all. So a key waiting on a battle lab, an Ore Purifier already standing, and a
-superweapon halfway through its charge are all drawn, dimmed on the picture and
-the name while the key badge and the countdown stay readable. Pressing one says
-what it is waiting on rather than doing nothing.
+**What cannot be ordered is dimmed, not hidden.** Drawing only what a press
+would order costs two things: the grid's shape changes under the hand between two
+openings, and the one question a greyed tile answers — *the key is right, so
+what is the thing waiting on?* — cannot be asked at all. So a key waiting on a
+battle lab, an Ore Purifier already standing, and a superweapon halfway through
+its charge are all drawn, dimmed on the picture and the name while the key badge
+and the countdown stay readable. Pressing one says what it is waiting on rather
+than doing nothing.
+
+**Or only what you can build right now**, which is a setting rather than the
+other rule back: *Draw only what you can build right now*, on the options page
+beside the rest of the chord settings. Ticked, a key still waiting
+on the **tech tree** is not drawn — a prerequisite that is not up, a factory you
+no longer have, a unit that only a spy in the enemy battle lab unlocks, which
+appears on its own key the moment the spy is out. What you **already own** is
+dimmed rather than hidden, because that is a different fact: an Ore Purifier or a
+Cloning Vats at its build limit, a superweapon you are holding. The cell stays
+empty either way, so no key after it moves. Only a trailing row with nothing left
+in it is dropped, which is what makes an early-match units grid two rows instead
+of three of nothing. A tile is hidden and shown **live**, on the same repaint the
+dim rides — build the battle lab and its keys arrive under the open grid.
+
+**A build limit dims its key.** `BuildLimit` is the third clamp on an order, and
+the client checks it where the order is placed rather than where availability is
+decided — so an Ore Purifier already standing stays *available*. Without a rule
+of its own its tile would look ordinary and press into silence, so it dims like a
+full queue instead, and the press says *you have all of those you may build*.
 
 A cell goes blank only for what this country can **never** have: a slot none of
 whose ids it builds — a German Tank Destroyer on a Korean grid — and a paradrop
 whose building nobody has, since the picture for those comes off the weapon
 itself. Blank keys still keep their cell, because the grid's geometry *is* the
-keyboard's and a hole that closed up would move every key after it; a trailing
+keyboard's and a hole that closed up would move every key after it. A trailing
 row with nothing in it is dropped instead.
 
 **Every tile says what the queues say about it.** A `×N` in the corner is how
@@ -306,11 +364,11 @@ credits, so the bar moves with the build and **stops dead when the money runs
 out** — a queue that has stalled looks different from one that is slow.
 
 **Right-click a tile to pause or cancel it**, which is what right-clicking a
-cameo has always done and the grid did not have until 0.58.0:
+cameo has always done:
 
 | the tile | right click | Shift + right click |
 |---|---|---|
-| what is being built now | **pauses** the queue — pause belongs to the queue, so pausing a Grizzly pauses the war factory | the same; pause has no quantity |
+| what is being built now | **pauses** the queue — pause belongs to the queue, so pausing a Grizzly pauses the war factory | the same. Pause has no quantity |
 | something behind it in the queue | **cancels one** | cancels **all** of that object |
 | nothing of it queued | says so | — |
 
@@ -319,8 +377,8 @@ The money comes back only when the last of an object leaves the queue —
 cancelling one of three refunds nothing — and that is the client's arithmetic,
 not ours.
 
-**A superweapon's key aims it, once you have one** (0.60.0). `wwd` orders a
-Chronosphere until one is standing; after that the same key hands it to the
+**A superweapon's key aims it, once you have one.** `wwd` orders a
+Chronosphere until one is standing. After that the same key hands it to the
 client's targeting mode, and the tile shows the charge where a queue's progress
 would be — a countdown, then `ready` in green, or `no power` if the base has
 browned out and the clock has stopped. Ordering a *second* Chronosphere is not on
@@ -343,13 +401,14 @@ the grid that are not objects:
 | `wwt`, Allied | **American paradrop**, sharing the Grand Cannon's key as a deck | America. The other half is French, so the key is dead for neither and no third country loses anything |
 | `wwg`, both sides | **Airport paradrop**, off a captured tech airport | anyone who captures one — the same key on both grids, like the shipyard's, for the thing a match may never hand you |
 
-A key like that is drawn only while you actually hold the weapon — the one place
-the 0.71.0 rule above does not reach, and for two reasons that point the same
-way: a paradrop you have no building for is *never* rather than *not yet* for
-three of the five countries, and its picture is read off the weapon, so there
-would be nothing to dim. Once you hold it, it dims like anything else until it is
-charged. In the options page they are a *Superweapons* group in the picker, each
-named after the building it comes from.
+A key like that is drawn only while you actually hold the weapon. It is the one
+place the dim-rather-than-hide rule above does not reach, for two reasons that
+point the same way. A paradrop you have no building for is *never* rather than
+*not yet* for three of the five countries. And its picture is read off the
+weapon, so there would be nothing to dim. Once you hold it, it dims like
+anything else until it is charged. In the options page they are a
+*Superweapons* group in the picker, each named after the building it comes
+from.
 
 **Aiming is not firing.** `activateSpecialMode` enters `SpecialActionMode`: it
 plays the client's own `EVA_SelectTarget`, swaps the cursor to the weapon's, and
@@ -360,9 +419,9 @@ superweapon lands — the same statement the rest of this extension makes about
 placement. It is also why an activation closes the grid: the box takes the mouse,
 and the next thing you do is click the map.
 
-**`Ctrl` and a tab key is that same right click, without opening anything**
-(0.59.0). It acts on what the tab is building — the item the queue is paying for
-— and it is the sidebar's own rule, not a new one:
+**`Alt` and a tab key is that same right click, without opening anything.** It
+acts on what the tab is building — the item the queue is paying for — and it is
+the sidebar's own rule, not a new one:
 
 | the press | what happens |
 |---|---|
@@ -376,19 +435,18 @@ The Units tab feeds three queues — Vehicles, Ships and Aircraft — so the pre
 takes the one that is actively building, and failing that the first that holds
 anything.
 
-**Corrected in 0.68.0.** That rule alone was said to be "how the second press
-still finds the queue the first one paused", and it is only that on a tab with
-one queue running. With two war factories' worth of work on the Units tab, the
-pause left Vehicles no longer *active*, so the second press moved on to Ships and
-paused that instead — the pair came apart, and the thing you meant to cancel was
-never cancelled. The queue a cancel key last acted on now wins for as long as it
-still holds something, which is the sidebar's own behaviour: a right click is a
-click on one cameo, and pausing, wandering off and cancelling reaches the same
-queue however long the gap. Reading the queues through the prediction is what
-brought it into the open — before that the second press saw an unchanged,
-still-active queue and landed on the right one by accident.
+**Which of the three a second press finds is not decided again.** Picking the
+active queue each time works only on a tab with one queue running. Put two war
+factories' worth of work on the Units tab and the pause leaves Vehicles no
+longer *active*, so a second press moves on to Ships and pauses that instead.
+The pair comes apart, and the thing you meant to cancel is never cancelled. So
+the
+queue a cancel key last acted on wins for as long as it still holds something,
+which is the sidebar's own behaviour: a right click is a click on one cameo, and
+pausing, wandering off and cancelling reaches the same queue however long the
+gap.
 
-**Alt on a slot key is that tile's right click** (0.62.0). The same pause-then-
+**Alt on a slot key is that tile's right click.** The same pause-then-
 cancel the tab key sends, aimed at the key you name rather than at whatever the
 queue happens to be paying for — so a Grizzly three deep in the war factory is
 `rr` then `Alt+w`, without hunting for the cameo. It follows the **key** rule
@@ -396,17 +454,17 @@ rather than the mouse one: the first press pauses a running queue and the second
 cancels, because that is what `Alt`+tab already does and two cancel keys that
 disagreed about the first press would be two rules to remember. `Alt+Shift` is
 five. Alt on a key the grid does not have is still the game's, and the grid
-closes as it always did.
+closes.
 
-**A held key means all of it** (0.62.0). Keep a slot key down for about half a
+**A held key means all of it.** Keep a slot key down for about half a
 second and the queue **fills** — to the room it has left, which is the client's
-own clamp; keep `Alt`+slot down and the whole of that item is **cancelled**. The
+own clamp. Keep `Alt`+slot down and the whole of that item is **cancelled**. The
 tap is not delayed to find out: one is ordered (or the pause is sent) the instant
 the key goes down, and the hold adds the rest on top. Letting go before the half
 second leaves you exactly where the tap left you, and losing the window while
 holding — Alt+Tab — drops the hold rather than firing it late.
 
-**Ctrl orders it next** (0.70.0). The one thing a cameo can do that no key could:
+**Ctrl orders it next.** The one thing a cameo can do that no key could:
 the client's `UpdateType.AddNext`, which the sidebar has had since its own v0.79
 and which its `KeyCommandType` never got a command for. `Ctrl` on a slot, on a
 tile's own key, or on any of the flat build keys puts the order **behind what is
@@ -435,61 +493,60 @@ algebra that merged the entries or inserted at the front would read every
 next-order as the client contradicting it and report a landed order as lost.
 
 So the whole scale on one hand: **tap** is one, **Shift** is five, **hold** is
-everything; and **Alt** turns any of the three from an order into a cancel.
+everything. And **Alt** turns any of the three from an order into a cancel.
 
-**Our own keys are off that block, on the left hand, and bare** (0.63.0, then
-0.66.0). Every one of them is a digit — `1` the overlay, `2` the production
-panel, `3` and `4` the two preview keys, `5` the game's own menu, `7` the net
-readout — and every part of that is a constraint rather than a taste.
+**What our own keys ship on is off that block, and it is `Alt` and a right-hand
+letter.** Both halves of that are a constraint rather than a taste. Which letter
+carries which panel is `DEFAULT_KEYS` in `src/companion.js` and nowhere in this
+document, because it is a default rather than a fact about the extension.
 
 *Off the block*, because an open grid spends every modifier on those fifteen
-letters: bare orders, Shift orders five, Alt cancels, and Ctrl closes on any key
-at all. Every default that sat there stopped working while a grid was up —
-Alt+Q, Alt+G and Alt+B outright, Shift+B and Shift+F for as long as the grid was
-on screen. `scripts/check-chords.mjs` now refuses a fixed hotkey on a slot key
-or on Ctrl, with no exceptions left to grandfather.
+letters: bare orders, Shift orders five, Alt cancels, and Ctrl queues next. A
+fixed hotkey there would stop working whenever a grid was up, so
+`scripts/check-chords.mjs` refuses one on a slot key or on Ctrl.
 
-*On the left hand*, because the right one is on the mouse. On a split keyboard —
-the 6×4-plus-thumbs the author plays — the left half is `Esc 1…5`, `Tab qwert`,
-`Shift asdfg`, `Ctrl zxcvb`, which is the whole of the chord feature already; the
-digits are what is left of that half once the block is out. 0.62.0 briefly put
-three of them on Shift+O/I/P, which is the *other* half and reachable only by
-letting go of the mouse.
+*Under `Alt`*, because it is the emptiest space the client has. That is read out
+of the shipped `[Hotkey]` table in `langmd.mix` plus the seven defaults
+`KeyBinds#load` injects over it: the only two entries under `Alt` are
+`ToggleMarbleMadness`, which is in the enum and never registered, and
+`ToggleShroud`, which is registered only while cheats are on. Every other
+modifier is spoken for — a bare digit is `TeamSelect`, `Shift`+digit is
+`TeamAddSelect`, `Ctrl`+digit is `TeamCreate`, `Alt`+digit is `TeamCenter`, and
+`Ctrl`+letter is eight inert commands, three cheats, `Ctrl+R` and the browser's
+own tab keys.
 
-*Bare*, because on that keyboard the digits live on a **layer**: `Alt+1` is three
-keys — layer, Alt, digit — where `1` is two. **This one is a trade, and it is the
-game's team select that pays.** A key with no modifier is taken from the client
-first and never reaches the match, so with the shipped defaults, selecting groups
-1–5 does not work until you rebind either side. What it does *not* cost is the
-modified press: `matchesHotkey` compares the whole modifier state rather than
-ignoring extras, so **`Ctrl`+digit still assigns a group**, and `Shift`+digit and
-`Alt`+digit still reach the game as well.
+*Right-hand letters*, because the left hand is spent on the grid and none of
+these is a mid-fight press — the hand leaving the mouse costs nothing that
+matters here. Within the right hand the letters are mnemonic where a panel has
+an initial to take, and positional where it does not: the panels and pictures
+sit in the order they are reached for, and the two opened when something is
+wrong sit together, away from the rest.
 
-If that trade is not yours to make, the options page is where to undo it, and
-every one of these rows carries the mark that says what a bare key costs.
+**One caveat is not visible from that table.** AltGr on a German or Polish layout
+arrives as `ctrlKey && altKey`, and `matchesHotkey` compares the modifier state
+exactly — so these fire on the left `Alt` only.
 
-**A key you rebound yourself is left alone** — only the shipped defaults moved,
-and the options page now marks a binding that lands on the block or on Ctrl as
-shadowed, so a rebind that would be eaten says so before you play with it.
+**A key you rebound yourself is left alone**, and the options page marks a
+binding that lands on the block or on Ctrl as shadowed, so a rebind that would be
+eaten says so before you play with it.
 
-**The game's own fullscreen key moves to Alt+Enter** (0.64.0). `Alt+F` is what
-the client binds fullscreen to — its menu says so *where an exit would be*, since
-on a page there is nothing to exit to and leaving is closing the tab. But `f` is
-also the ninth slot of the grid, and Alt on a slot key is that slot's cancel, so
-one press had two meanings. It is settled by position rather than by preference:
+**The game's own fullscreen key moves off `Alt+F`.** That is what the client
+binds fullscreen to — its menu says so *where an exit would be*, since on a page
+there is nothing to exit to and leaving is closing the tab. But `f` is also the
+ninth slot of the grid, and Alt on a slot key is that slot's cancel, so one press
+carries two meanings. Position settles it rather than preference:
 
-| when | Alt+F | Alt+Enter |
+| when | `Alt+F` | the fullscreen key |
 |---|---|---|
 | a grid is open | cancels that slot — the grid takes the press first | fullscreen |
 | no grid | nothing, the key has moved | fullscreen |
-| the setting unticked | the client's own fullscreen, as it always was | nothing |
+| the setting unticked | the client's own fullscreen | nothing |
 
 **Nothing here calls `requestFullscreen`.** What goes out is a synthetic `Alt+F`
 at the document, and the client does all of it — including taking the keyboard
-lock it takes when it enters *its own* fullscreen, which is the thing 0.60.1 is
-about. Entering fullscreen ourselves would reproduce exactly the state that fixed:
-fullscreen held by a caller that never asked for the lock, and Escape back to
-leaving it instead of reaching the game.
+lock it takes when it enters *its own* fullscreen. Entering fullscreen ourselves
+would leave fullscreen held by a caller that never asked for the lock, and Escape
+back to leaving it instead of reaching the game.
 
 The one thing a page cannot forge is `isTrusted`, so a client that checks it would
 drop the re-issue in silence. That case is **reported**, not worked around: if
@@ -498,19 +555,19 @@ refusing a synthetic key. `__cdc.chords().fullscreenKey` says the other half —
 whether `Alt+F` is in the client's own table at all, which is the one fact only a
 running match can supply.
 
-**The game's own menu moves off Escape, onto `5`** (0.73.0). In a match Escape is
-the client's key for `KeyCommandType.Options`, which opens the in-game menu —
-Options, Fullscreen, **Abort Mission**, Resume Mission. That is one reflex and one
-click from quitting a match, on the key a hand reaches for to cancel a placement
-or clear a selection.
+**The game's own menu moves off Escape, onto a key of yours.** In a match
+Escape is the client's key for `KeyCommandType.Options`, which opens the in-game
+menu — Options, Fullscreen, **Abort Mission**, Resume Mission. That is one reflex
+and one click from quitting a match, on the key a hand reaches for to cancel a
+placement or clear a selection.
 
-| when | Escape | `5` |
+| when | Escape | the menu key |
 |---|---|---|
 | in a match, no menu | nothing — the key has moved | opens the menu |
 | the menu is open | closes it, back to the match | closes it too |
 | the menu is a screen deep (quit confirmation, options) | one step back | closes it |
-| the full render is on screen | dismisses the render, as it always did | opens the menu |
-| the setting unticked | the game's own menu, as it always was | nothing |
+| the full render is on screen | dismisses the render | opens the menu |
+| the setting unticked | the game's own menu, on Escape | nothing |
 
 **The second half is not symmetry, it is a gap in the client.** Opening the menu
 calls `WorldInteraction#setEnabled(false)`, which *removes the client's own
@@ -526,15 +583,15 @@ unlock the pointer and re-enable the world interaction are the client's own. Tha
 is the difference from the fullscreen swap above, which has no method to call and
 therefore carries a residual `isTrusted` risk this does not.
 
-**Both halves stop the moment the match does** (0.73.1). A match ends with the
-client disposing its player UI — which takes its own `keydown` listener with it —
-and only leaving the game screen five seconds later, with the menu object still
-alive in between. In that window the client's Escape is already dead and ours was
-not, so the key could open the menu onto a screen the client had finished with:
-the open event dispatched into a disposed world interaction, a screen was pushed
-onto a HUD about to be destroyed, and *Abort Mission* there would have disposed
-the player UI a second time. The key now answers only while a match is in play. A
-menu that was already open when the match ended under it still closes.
+**Both halves stop the moment the match does.** A match ends with the client
+disposing its player UI — which takes its own `keydown` listener with it — and
+only leaving the game screen five seconds later, with the menu object still alive
+in between. In that window the client's Escape is already dead, so a key still
+answering would open the menu onto a screen the client had finished with: the
+open event dispatched into a disposed world interaction, a screen pushed onto a
+HUD about to be destroyed, and *Abort Mission* there disposing the player UI a
+second time. So the key answers only while a match is in play. A menu that was
+already open when the match ended under it still closes.
 
 **Which key is swallowed is read, not assumed.** The client's `KeyBinds` table is
 already hooked, so the key it has on `Options` is the one taken — move it in the
@@ -542,47 +599,42 @@ game's own key settings and that move is respected, and Escape is left alone.
 `__cdc.chords().menuKey` says what it found and whether the menu itself was
 captured.
 
-**Ctrl+W is the browser's, and holding it takes a keyboard lock.** The tab closes
-without the page being asked, so `preventDefault` is not offered and `Ctrl` cannot
-mean *queue next* on the grid's `w` and `t` slots on its own. What a fullscreen
-game uses for this is `navigator.keyboard.lock()`, and so does this — for the
-codes a Ctrl is actually taken on, in a match, and only while the game is in
-**its own** fullscreen: the client's button, not F11, because the API is defined
-against the Fullscreen API's element and F11 leaves it null. Without the lock the
-press is **left alone entirely** rather than queued into a closing tab — you would
-lose the order and the tab and see neither happen. It is a tick in *Overlay
-settings*, and `__cdc.chords()` reports whether the lock is held.
+**Ctrl+W is the browser's, and holding it takes a keyboard lock.** The tab
+closes without the page being asked, so `preventDefault` is not offered and
+`Ctrl` cannot mean *queue next* on the grid's `w` and `t` slots on its own.
+What a fullscreen game uses for this is `navigator.keyboard.lock()`, and so
+does this. It asks for the codes a Ctrl is actually taken on, in a match, and
+only while the game is in **its own** fullscreen — the client's button, not
+F11. The API is defined against the Fullscreen API's element, and F11 leaves
+that null. Without the lock the press is **left alone entirely** rather than
+queued into a closing tab — you would lose the order and the tab and see
+neither happen. It is a tick in *Overlay settings*, and `__cdc.chords()`
+reports whether the lock is held.
 
-**What it asks for moved in 0.70.0 and the reason did not.** It used to hold the
-four sidebar tab keys, because the cancel key was Ctrl and one of the tabs is `w`.
-The cancel is on Alt now, which the browser does not reserve — but Ctrl became
-*queue next* across the whole grid, whose second and fifth slots are `w` and `t`.
-Same two codes, opposite command, and `ctrlKeysToHold()` derives them from the
-keys a Ctrl is taken on rather than naming them, so a fixed binding on `n` is
-held too.
+**Which codes it asks for are derived, not named.** Ctrl is *queue next* across
+the whole grid, whose second and fifth slots are `w` and `t`, so
+`ctrlKeysToHold()` reads the keys a Ctrl is actually taken on rather than listing
+them — which is why a fixed binding on `n` is held too.
 
-**There is one lock per page, and the client is already using it** — the
-correction 0.60.1 is, and the reason that setting broke on the first Escape in
-0.59.0. `keyboard.lock(codes)` **replaces** the locked set rather than adding to
-it, and the client locks `Escape, F5, F12, F11` whenever it enters fullscreen,
-precisely so that Escape reaches the game instead of leaving fullscreen. Asking
-for four tab keys released exactly that: the next Escape dropped out of
-fullscreen, **leaving fullscreen ends the lock altogether**, and Ctrl+W went back
-to closing the tab. So neither side calls the API directly any more — the
-extension wraps it, records what each side asked for, and locks the **union**, so
-the client keeps its Escape and we get our Ctrl+W. Turning the setting off adds
+**There is one lock per page, and the client is already using it.**
+`keyboard.lock(codes)` **replaces** the locked set rather than adding to it, and
+the client locks `Escape, F5, F12, F11` whenever it enters fullscreen, precisely
+so that Escape reaches the game instead of leaving fullscreen. Asking for codes
+of ours directly would release exactly that: the next Escape would drop out of
+fullscreen, **leaving fullscreen ends the lock altogether**, and Ctrl+W would go
+back to closing the tab. So neither side calls the API directly — the extension
+wraps it, records what each side asked for, and locks the **union**, so the
+client keeps its Escape and we get our Ctrl+W. Turning the setting off adds
 nothing and takes nothing: the client's own lock is left exactly as it was, and
 what you give up is *next* on two of the fifteen slots.
 
-**A structures chord opens while that queue is building**, which it did not
-before 0.58.0. The old rule was that a building queue holds one item, so there
-was nothing to add and nothing to cancel; the second half stopped being true
-when tiles gained a right click, and the grid is now where you watch a
-construction yard and where you stop it. Finished is still different: `qq` hands
-the building to the client's placement mode, which is what clicking the ready
-cameo does.
+**A structures chord opens while that queue is building.** A building queue holds
+one item, so there is nothing to add — but there is something to cancel, so the
+grid is where you watch a construction yard and where you stop it. Finished is
+different: `qq` hands the building to the client's placement mode, which is what
+clicking the ready cameo does.
 
-**And the tab key keeps that meaning under an open grid** (0.61.0). Watch a
+**And the tab key keeps that meaning under an open grid.** Watch a
 construction yard on the grid you opened while it was building and the building
 finishes *under* it — from that moment the queue takes nothing else until the
 structure is on the ground, so every slot on the grid would be refused. So `q`
@@ -594,36 +646,35 @@ for either. The two unit tabs never see any of this — a unit queue is never
 ready, its units leave the factory on their own.
 
 **The grid is driven by the game's cursor, not the browser's.** The client keeps
-the real pointer *locked* — the cursor you see in a match is a sprite it draws,
-not the OS one — and under a lock the browser reports the cursor as frozen
-wherever it was when the lock took, and its own hit-testing cannot reach an
-overlay at all. Releasing the lock is not the answer: leaving one drops the OS
+the real pointer *locked*, and the cursor you see in a match is a sprite it
+draws rather than the OS one. Under a lock the browser reports the cursor as
+frozen wherever it was when the lock took, and its own hit-testing cannot reach
+an overlay at all. Releasing the lock is not the answer: leaving one drops the OS
 cursor in the middle of the screen, away from the grid. So the lock is left
 alone and the grid does the three things the browser would have done — finding
 the tile under the cursor, lighting it up, and **drawing the cursor itself** —
 against the cursor you can actually see. Clicks work the same in fullscreen,
 because nothing about this depends on the window.
 
-The third of those is 0.59.0. The client's cursor is a sprite in its own canvas
-and our boxes are DOM above that canvas, so an overlay covered the only cursor in
-the window and you aimed at a tile by dead reckoning. There is one drawn over our
-own boxes now — over those and nowhere else, since anywhere else the game's own
-cursor is right there and a second one would be two cursors disagreeing. The
-production panel gets it too.
+The third of those needs saying. The client's cursor is a sprite in its own
+canvas and our boxes are DOM above that canvas, so an overlay would cover the
+only cursor in the window and leave you aiming at a tile by dead reckoning. One
+is drawn over our own boxes — over those and nowhere else, since anywhere else
+the game's own cursor is right there and a second one would be two cursors
+disagreeing. The production panel gets it too.
 
-**An open grid outranks the fixed hotkeys**, and since 0.63.0 there is nothing
-left for that to cost: every fixed key is `Alt`+a digit and the grid's block is
-fifteen letters. The rule still stands for anything *you* bind there — a slot
+**An open grid outranks the fixed hotkeys**, and nothing is left for that to
+cost: every fixed key is `Alt` and a right-hand letter, and the grid's block is
+fifteen left-hand ones. The rule still stands for anything *you* bind there — a slot
 key under any modifier, or any Ctrl press, goes to the grid while one is open,
 and the options page marks such a binding.
 
 **Which grid a building is on is the game's decision, not a preference.**
 `BuildCat=Combat` sends a building to the Armory queue, which is the Defence tab
 — so the superweapons, the Gap Generator, the SpySat Uplink and the Psychic
-Sensor are on `ww`, not `qq`, however much they read like base buildings. They
-were on the wrong grid in 0.54.0; `scripts/check-chords.mjs` now reads
-`BuildCat` out of the generated rules table and refuses a layout that disagrees
-with the client.
+Sensor are on `ww`, not `qq`, however much they read like base buildings.
+`scripts/check-chords.mjs` reads `BuildCat` out of the generated rules table and
+refuses a layout that disagrees with the client.
 
 **One key can hold a country's two names for one thing, and you never see it.**
 `AMRADR`'s rules section is literally `Name:GAAIRC` — the American Airforce
@@ -635,11 +686,11 @@ is nothing here for you to know: the key is the Airforce Command Headquarters,
 or the Intruder, under its plain name and its own picture, in the editor as in
 the game. The pair behind it is machinery.
 
-**Both sides are the grids their player arrived at.** The Soviet one shipped in
-0.56.0 and the Allied one in 0.57.0, each adopted from a profile that had been
-pressing it for a season — which outranks the two rules the layouts were built
-on before that, tech order and then the mirror, because it is the only one with
-evidence behind it. What is left of the mirror still holds where the rosters do
+**Both sides are the grids their player arrived at.** Each was adopted from a
+profile that had been pressing it for a season — which outranks the two rules a
+layout could be built on instead, tech order and the mirror, because it is the
+only one with evidence behind it. What is left of the mirror still holds where
+the rosters do
 the same jobs: the structures opening, `q` the miner and `w` the main tank and
 `e` the anti-air on units, the country key, the sea. And it is broken where the
 hand disagreed with it — the units grids swap `t` and `d` against each other,
@@ -657,7 +708,7 @@ that row or parks something dry in it.
 
 **Country units are on the key that ends their group** — `d` on the infantry
 grid, after the specialists and before the heroes, and `f` on the units grid,
-after the land block; the same key on both sides, so it is one key to learn per
+after the land block. The same key on both sides, so it is one key to learn per
 section rather than one per grid. The Iraqi Desolator and the Cuban Terrorist
 share it: most countries get neither, and giving each its own would be two keys
 dead for almost everyone. The French Grand Cannon is the exception and barely
@@ -682,8 +733,8 @@ follows what ships again.
 ### The keys on the game's own sidebar
 
 A grid answers "which key builds this" once it is open. The sidebar answers it
-without being asked: from 0.65.0 each cameo carries **the slot letter of its
-chord** in the top-left corner, and each of the four tab buttons carries **its
+without being asked: each cameo carries **the slot letter of its chord** in the
+top-left corner, and each of the four tab buttons carries **its
 own prefix key**. Read together they are the whole press — `r` on the Units tab,
 `t` on a Rhino cameo, so the Rhino is `rr` then `t`.
 
@@ -691,7 +742,7 @@ The prefix is on the tab rather than on every cameo because it is one fact per
 tab: a `qq` repeated down twelve tiles is twelve copies of something the tab
 already says. Both badges sit in the same corner, and the tab's is the smaller of
 the two — a tab button is a fifth the height of a cameo and its artwork is the
-whole of it, so 0.65.0's centred badge covered the thing it was annotating.
+whole of it, so a centred badge would cover the thing it annotates.
 
 A cameo the game has **greyed out** keeps its key, dimmed — the key is right, it
 is the object that is not available yet — and a cameo nothing binds carries no
@@ -701,16 +752,16 @@ badge at all.
 box, which matters more here than anywhere else in the extension: this is the one
 overlay sitting on top of something you have to be able to click.
 
-**They follow the sidebar, including while you resize it.** The client draws the
-whole HUD in WebGL, so there is no cameo element to attach to — the positions are
-read from the client's own scene, every frame, and the DOM is written only when
-one of them changes. That is what makes a mid-match scale change a non-event: the
-client rebuilds its entire HUD on a viewport change (a resize, its fullscreen
-button, a browser zoom), the sidebar gains or loses whole rows of cameos as the
-window gets taller or shorter, and none of it is a case this has to detect. It is
-just different numbers on the next frame.
+**They follow the sidebar, including while you resize it.** The client draws
+the whole HUD in WebGL, so there is no cameo element to attach to — the
+positions are read from the client's own scene, every frame, and the DOM is
+written only when one of them changes. That is what makes a mid-match scale
+change a non-event. The client rebuilds its entire HUD on a viewport change — a
+resize, its fullscreen button, a browser zoom — and the sidebar gains or loses
+whole rows of cameos as the window gets taller or shorter. None of it is a case
+this has to detect. It is just different numbers on the next frame.
 
-**A superweapon key is two keys, and the badge follows it** (0.67.0). A slot
+**A superweapon key is two keys, and the badge follows it.** A slot
 holding, say, the Chronosphere orders the building while there is none, and
 *aims the weapon* once there is. The client draws those as two different cameos —
 the building in its own tab, and the ability it adds to the Defence tab the
@@ -727,9 +778,96 @@ that cannot answer leaves the building's cameo in place.
 
 *Settings* → *Build chords* has a tick to turn them off.
 
+## Game commands on our keys
+
+The other direction of the same idea: a build hotkey sends a build order, and
+one of these sends a press to the client's own `KeyboardHandler`. Bind them
+under **Settings** → *Game commands*: pick a command, press a combination.
+
+Its reason for existing is **the alliance screen**, and the reason is worth
+stating exactly, because it is not a preference the client hides — it is a
+binding the client re-applies. `KeyBinds#load` ends like this:
+
+```js
+        if (e) { … this.loadHotKeys(this.defaultIni) }   // the built-in defaults
+        …                                                 // or the saved keyboard.ini
+        this.addHotKey(KeyCommandType.Scoreboard, 9)      // and then, always, Tab
+```
+
+That last line runs after both branches, so nothing written to `keyboard.ini`
+survives it. `Scoreboard` is also absent from `configurableCmds`, the list the
+client's own Keyboard screen is built from — 88 commands, and that is not one of
+them. So the command cannot be seen in the client's options, and could not be
+moved there if it could. (`Scoreboard` opens `gameMenu.openDiplo()`, the alliance
+list. The name is the client's, not a screen of scores.)
+
+**Freeing `Tab` is therefore binding `Tab`, and nothing is written to the
+client's table to do it.** The client attaches its keyboard handler on the
+`document` in the bubble phase. This extension's listener is on `window` in the
+capture phase, so a press it consumes never arrives. A `Tab` you have not bound
+goes on opening the alliance screen, which is the right default — the change
+happens when you ask for it and not before.
+
+The list you pick from is **harvested from the running client**, not shipped
+here: `sendCommands` reads the live `KeyboardHandler`'s own command table at the
+start of a match. That is a smaller list than `KeyCommandType`, deliberately —
+the enum carries names nothing registers (`ToggleMarbleMadness`) and names
+registered only while cheats are on (`FreeMoney`), and a binding on either could
+never fire. Until you have played one match with the extension installed the
+panel says so rather than offering a list it has not read.
+
+A key can be claimed by three lists, and the press resolves in one order: the
+panel hotkeys, then these, then the build keys. The options page marks a row
+whose key is claimed by another list and says which way it resolves, since in a
+match a shadowed binding looks exactly like a broken one.
+
+The command runs through `KeyboardHandler#executeCommand` — the same call the
+client makes once it has hashed a press of its own — so trigger modes and the
+pause while a menu is up are the client's own behaviour, unreimplemented. **No
+synthetic `KeyboardEvent` is involved.** The extension has one of those
+(`reissueFullscreenKey`) and it exists because fullscreen needs the client's
+keyboard *lock*, not because a command needs a key.
+
+## Mouse buttons
+
+**A mouse press binds wherever a key binds.** Click the key button in the
+options page and press a mouse button instead of a key. Panels, game commands,
+the game menu, build orders — all of them.
+
+**Buttons 3 and up, and all of them.** Left, middle and right are never
+offered: left is the click that opens the capture, right is the game's own
+order, middle is the browser's autoscroll. Everything above is free, so nothing
+above is excluded — a mouse with eight buttons either sends them as buttons, in
+which case they bind here, or its driver sends keystrokes, in which case they
+bind as keys.
+
+Modifiers work as they do on a key. Two side buttons are eight bindings, and
+`Ctrl` on a build binding still means *queue this next* — the flat build path
+reads `Ctrl` and nothing else, so a side button spends one modifier there, not
+three. `Alt` and `Shift` belong to the chord grid, which a mouse press never
+enters.
+
+The descriptor is a key's with `Mouse<n>` where the `code` would be, which is
+why so little code was needed: both halves of the extension go on reducing a
+binding through the same `bindingId`. The one thing it cannot carry is a
+`keyCode` — the client's own hotkey table hashes that field, so a mouse press
+can never be in that table, and a mouse binding reaches a client command
+through `KeyboardHandler#executeCommand` exactly as a key does.
+
+**What was measured, and what was not.** A probe in the dev build
+(`src/debug-hud.js`, and `scripts/probe-mouse-buttons.js` for a browser without
+it) recorded buttons 3 and 4 arriving *while the client held pointer lock*,
+carrying their modifiers, with `preventDefault` keeping the browser from
+navigating. What that run did not exercise is a **bare** Back or Forward — the
+press a browser would actually navigate on. The options page marks that one
+combination, the extension swallows the whole click rather than only its
+`mousedown` (a browser acts on back/forward at the *end* of a click), and the
+probe stays armed so a navigation that ever gets through writes itself to the
+log.
+
 ## The production panel
 
-**`2`** shows every production queue at once — Structures, Defence, Infantry,
+**Its key** shows every production queue at once — Structures, Defence, Infantry,
 Vehicles, Ships, Aircraft — with what is in each, how far the first item has got,
 and whether it is ready or on hold. **A queue with nothing in it says so**, which
 is the part the sidebar cannot do: it only ever draws the tab you are looking at,
@@ -737,21 +875,27 @@ so an idle war factory looks the same as a tab you have not opened.
 
 It is live off the client's own `production.onQueueUpdate` rather than a timer,
 so it costs nothing while nothing is being built, and it drags anywhere you want
-it. An order you have just pressed is in it before the client has applied it,
-which is the other half of the same fact: that event says nothing until the
-client acts, and an **idle** queue spends no credits and so dispatches nothing at
-all — the first order into an empty factory would otherwise be the one press that
-still looked slow. See [The lag](#the-lag-and-why-a-press-does-not-wait-for-it).
+it. An order you have just pressed is in it before the client has applied it. That
+is the other half of the same fact: the event says nothing until the client
+acts, and an **idle** queue spends no credits and so dispatches nothing at all.
+Without the prediction, the first order into an empty factory would be the one
+press that still looked slow. See [The lag](#the-lag-and-why-a-press-does-not-wait-for-it).
 
 **If a key does nothing, `__cdc.build()` in the game tab's console says why.** A
-dead key has five possible causes — the client modules did not load, no match is
-captured, the side did not resolve, the bindings never reached the tab, or the
-press matches none of them — and every one of them looks identical from the
-outside. It answers all five; `__cdc.build("KeyQ")` also says what that key is
-bound to here and what the client itself has on it. Two of the five have already
-happened: bindings that were stored and never pushed to a running tab (0.53.1),
-and client modules that were imported and then not kept (0.53.3, now guarded by
-`scripts/check-modules.mjs`).
+dead key has five possible causes, and every one of them looks identical from
+the outside:
+
+1. the client modules did not load
+2. no match is captured
+3. the side did not resolve
+4. the bindings never reached the tab
+5. the press matches none of them
+
+It answers all five. `__cdc.build("KeyQ")` also says what that key is
+bound to here and what the client itself has on it. Two of the five are known to
+happen: bindings stored and never pushed to a running tab, and client modules
+imported and then not kept — the second is guarded by
+`scripts/check-modules.mjs`.
 
 **And `__cdc.chords()` is the same answer for a chord that does not open.** It
 names which prefix resolved to which section and out of whose table — the
@@ -760,21 +904,21 @@ and whether it came from the options page or the defaults. A tab command the
 client has bound to a *modified* key gets no chord at all rather than a guessed
 one, and that is the one silent case, so it is listed by name.
 
-The list of bindable objects is read from **the client's own rules**, in the game
-tab, and kept in storage for the options page (which has no game and therefore no
-rules of its own). It is harvested once per client version; **play one match**
-with the extension installed and the picker fills in. A match rather than an
-open client: the client parses its rules during its own boot, long before the
-main menu, but the harvest that reads them is fired at idle from a config push
-that regularly arrives while the splash screen is still up — so match start is
-the attempt that reliably lands, and the same holds for the colour table and the
-object table. The names, costs and
-pictures come off the same trip: the object table and the cameo sheet the replay
-views already read, harvested from that client and never shipped in this repo.
+The list of bindable objects is read from **the client's own rules**, in the
+game tab, and kept in storage for the options page (which has no game and
+therefore no rules of its own). It is harvested once per client version. **Play
+one match** with the extension installed and the picker fills in. A match
+rather than an open client. The client parses its rules during its own boot,
+long before the main menu, but the harvest that reads them fires at idle from a
+config push that regularly arrives while the splash screen is still up. So
+match start is the attempt that reliably lands, and the same holds for the
+colour table and the object table. The names, costs and pictures come off the
+same trip: the object table and the cameo sheet the replay views already read,
+harvested from that client and never shipped in this repo.
 
 ## The net readout
 
-**`7`** puts the numbers behind the client's own `Ctrl+R` panel on screen as
+**Its key** puts the numbers behind the client's own `Ctrl+R` panel on screen as
 text: ping to the game server, how long your own orders take to come back,
 frames per second, the lockstep's turn length, and every player's ping. It drags
 anywhere and stays where you leave it, like the production panel.
@@ -815,7 +959,7 @@ matches what a press feels like. See
 does about that latency rather than merely reporting it.
 
 **The turn row is where someone else's connection shows up.** The server
-stretches the network turn to the slowest client in the lobby; the game turn is
+stretches the network turn to the slowest client in the lobby. The game turn is
 what this match's speed asks for. Equal is the healthy case. And when a turn is
 stuck long enough, the client raises its own lag state (`onLagStateChange`) —
 the panel says *waiting for the other clients* rather than leaving you to guess
@@ -825,7 +969,7 @@ at a frozen screen.
 
 **One thing, and it is the client's own ping at the client's own faster rate.**
 While the panel is open the extension calls `setPingInterval(1000)`, which is
-exactly what the client does for itself when `Ctrl+R` is on; closing the panel
+exactly what the client does for itself when `Ctrl+R` is on. Closing the panel
 hands the rate back to ten seconds unless the client's own panel is up. The
 call is made once a second rather than once on opening, because the client
 resets that interval whenever its FPS panel is toggled — which would otherwise
@@ -852,11 +996,80 @@ starting a match at all.
 
 `node scripts/check-net.mjs` runs the whole panel without a browser or a match —
 the section is sliced out of `companion.js` and driven against a stub client and
-a stub DOM. It pins the bands against the client's own thresholds, the two ways
-the order latency can lie (timing a turn that was never sent, and a map that
-grows one entry per turn), the age label, which ping interval is asked for in
-each of the three states, and that detaching a finished match releases all five
-subscriptions.
+a stub DOM. It pins the bands against the client's own thresholds. It pins the two ways the
+order latency can lie: timing a turn that was never sent, and a map that grows
+one entry per turn. It pins the age label, and which ping interval is asked for
+in each of the three states. And it pins that detaching a finished match
+releases all five subscriptions.
+
+## Memory readout
+
+**It has a key in a match, and it opens itself.** Players report the tab crashing,
+and one reported the stage before it — the page still there with a blank
+canvas. That is a lost WebGL context, which is what the GPU process does when
+it runs out, so those are one failure at two moments rather than two problems.
+
+**What this cannot be built on.** `performance.memory` is the obvious source
+and it is the wrong one. Chasing a re-run that kept killing its tab, this repo
+measured seven deaths at about 1146 MB against a `jsHeapSizeLimit` of **4192
+MB**, with the reported heap flat through every one of them. A panel drawn from
+that number would have been green through all seven. What fills up is canvases
+and three.js geometry and textures: the client's `RenderableManager` retires a
+renderable only from inside `Renderer.update`, so anything that stops the
+render loop stops the disposal — and none of it is JS heap.
+
+So `src/gl-meter.js` counts at the only boundary a page owns, the GL calls
+themselves: textures, buffers, renderbuffers and framebuffers created against
+deleted, with the bytes of each upload attributed to the object they went into,
+so a delete subtracts what that object actually held. It is a content script at
+`document_start` for the same reason `src/frames.js` is one — the client takes
+its context while it boots, and an instrument installed afterwards instruments
+nothing. **Nothing per-draw is wrapped**: every call it touches is an
+allocation, made thousands of times over a match rather than millions of times
+a second, so its cost does not scale with the frame rate.
+
+Those figures are an **estimate of what was uploaded, not a reading from the
+driver**, and the panel says so on its own last line. Driver padding and
+compression are outside what these calls state. What means something is the
+shape over a match — a renderer that disposes sawtooths, one that does not
+climbs — which is why every row carries a trend in megabytes per minute rather
+than only a level.
+
+**Two things force the panel open, and both are ground truth:**
+
+| | why it needs no calibration |
+|---|---|
+| the page heap past **85%** of `jsHeapSizeLimit` | the ceiling is a number the platform states |
+| the **graphics context is lost** | it is not a number approaching a limit, it is the failure itself — the blank screen |
+
+**Nothing about graphics memory raises an alarm**, and that is a decision
+rather than an omission: there is no readable ceiling to take a share of,
+nothing here calibrates what a critical texture footprint would be, and a
+match's build-up phase is genuine growth that any level-based rule would fire
+on. The figures are shown and recorded. A threshold, if one is ever added, will
+come from the traces this collects. `GPU_ALARM` in `src/mem-readout.js` holds
+the place and the reason, and `check-memory.mjs` asserts that 8 GB of textures
+still raises nothing.
+
+Closing the panel by hand is an answer: it stays closed for that alarm, and opens again only if
+something *different* goes wrong, or if the same thing clears and comes back.
+
+**The trace is the point.** A tab that is killed reports nothing — which is
+exactly what made the original crashes so expensive to diagnose. So fifteen
+minutes of readings are kept in `localStorage` as they are taken, and marked
+closed on `pagehide`. A tab that dies never writes that mark, so the next boot
+can say what the last session ended at, in the log and on the panel itself.
+`__cdc.memTrace()` in the console is the whole curve, which is the useful thing
+to ask a player for.
+
+`node scripts/check-memory.mjs` drives both files as themselves — the meter
+against a stub GL context, the rule against an injected clock and store. It
+pins every branch of the byte estimate against a number computed by hand,
+including the six-argument `texImage2D` form the client's sprite path actually
+uses, and both alarms including which of them outranks the other. It has
+already earned its keep: it caught the trend understating a 12 MB/min climb as
+9, because the medians it compares sit at the centres of their windows and the
+denominator was measuring end to end.
 
 ## Player colours
 
@@ -873,11 +1086,11 @@ still paints the *second* opponent, rather than promoting everyone up by one, so
 a row means the same opponent whatever the rows above it say.
 
 Three surfaces follow the setting: the match itself, the roster on our
-loading-screen panel and the `1` overlay, and the client's own loading-screen
+loading-screen panel and the in-game overlay, and the client's own loading-screen
 rows. On the loading screen there are no players yet, only the lobby's slots, so
-**allies there are the lobby's teams** rather than a live alliance — and if two
-people picked the same country, "you" is ambiguous and that screen is left in the
-client's colours rather than painted from a guess. The match itself has no such
+**allies there are the lobby's teams** rather than a live alliance. And if two
+people picked the same country, "you" is ambiguous, so that screen is left in
+the client's colours rather than painted from a guess. The match itself has no such
 doubt.
 
 ### The game repaints itself
@@ -892,27 +1105,27 @@ anything.**
 It is applied from `Game#init`, which is the first moment every player's role
 exists (the client forms the lobby's teams into alliances at the end of it) and
 the last before anything has been drawn in the wrong colour. An alliance formed
-or broken mid-match repaints too; the radar takes a tile's colour when the tile
+or broken mid-match repaints too. The radar takes a tile's colour when the tile
 is dirtied rather than every frame, so blips already on it keep the old colour
 until each object next moves.
 
 **A colour is only ever taken by name out of the client's own rules.** With
-sprite batching on, a batched voxel builder resolves its palette by content hash
-against a list precomputed from `rules.colors`, and throws *inside the render
-loop* when the hash misses — so an invented red is a crash rather than a red.
-That is why the options page offers a table harvested from the client — the same
-trip that reads the build roster, and it fills in when you **play a match**, not
-when you open the client — instead of colours of its own, and why a name
+sprite batching on, a batched voxel builder resolves its palette by content
+hash against a list precomputed from `rules.colors`, and throws *inside the
+render loop* when the hash misses — so an invented red is a crash rather than a
+red. So the options page offers a table harvested from the client instead of
+colours of its own. It comes off the same trip that reads the build roster, and
+it fills in when you **play a match**, not when you open the client. A name
 this client does not define is skipped with a line in the log rather than
 guessed at. `node scripts/check-colours.mjs` asserts the section never
 constructs a colour, along with the ordinals, the observer and empty-table
 cases, and that the alliance watch is released with the match it belongs to.
 
 **It is local render state and nothing else.** Colour is absent from
-`Player#getHash()`, which is what the lockstep compares, and nothing sends it: no
-desync, nothing on the wire, and no information a client did not already hold —
-every client knows every alliance already, because the action that forms one
-travels through the same lockstep everyone replays.
+`Player#getHash()`, which is what the lockstep compares, and nothing sends it.
+So there is no desync, nothing on the wire, and no information a client did not
+already hold: every client knows every alliance already, because the action that
+forms one travels through the same lockstep everyone replays.
 
 ## Per-map guides
 
@@ -977,7 +1190,7 @@ that outlives the client that produced it.
 Storing the map **file** instead was considered and dropped: it is hundreds of
 kilobytes a map, and it would not remove the engine from the loop anyway, since
 drawing needs the theater art and only the client can fetch that
-(`theaterFor()` in `src/hq-preview.js`). The bytes say what is where; they do not
+(`theaterFor()` in `src/hq-preview.js`). The bytes say what is where. They do not
 say what it looks like.
 
 The **name** on a card comes from the client's own map list
@@ -996,19 +1209,23 @@ alongside it and the two talk over `window.postMessage`.
 The preview auto-anchors to the radar — the in-game HUD is WebGL, so there is no
 element to attach to, but the `Minimap` UiObject reports its position and fit
 size in the same pixel space as this overlay. **Drag** the preview to move it,
-drag its bottom-right corner to resize; the position is remembered per browser.
+drag its bottom-right corner to resize. The position is remembered per browser.
 `__cdc.resetLayout()` puts it back on the radar.
 
-**Every one of these keys is reassignable** under **Settings** in the
-options page — click the key, press the combination. That matters because a
-hotkey can be taken by three layers and only you can see all three: the game,
-the browser, and Windows. An Alt+Shift binding was the first casualty —
-**Alt+Shift is the Windows keyboard-layout switch**, so on a machine with two
-layouts it never reaches the page at all. Nothing defaults to Alt+Shift now.
-The one thing true of every key is a line of text above them;
-what each key *does* is a **?** on its own row, and so is a binding the extension
-can see a problem with — no modifier at all, so the game acts on the key too;
-Alt+Shift, which may never arrive. The symbol turns amber when it has a warning.
+**Every one of these keys is reassignable** under **Settings** in the options
+page. Click the key, then press the combination.
+
+Rebinding matters because a hotkey can be taken by three layers, and only you
+can see all three: the game, the browser, and Windows. **Alt+Shift is the
+Windows keyboard-layout switch**, so on a machine with two layouts it never
+reaches the page at all. Nothing defaults to Alt+Shift.
+
+The page says what it can see. A line of text above the rows carries what is
+true of every key. A **?** on a row carries what that one key does, and turns
+amber when the extension can see a problem with the binding:
+
+- **no modifier at all**, so the game acts on the key as well.
+- **Alt+Shift**, which may never arrive.
 
 For the game layer the check is live rather than assumed: the extension reads
 the client's own `KeyBinds` table as it is built — defaults and your own
@@ -1016,68 +1233,13 @@ customised binds alike — and `__cdc.build()` reports whether a binding of your
 collides with a game command. The client does use Alt combinations (Alt+S
 toggles shroud).
 
-## Diagnosing it
-
-`__cdc.probe()` in the game tab's console (page context) is the first thing to
-run: it re-checks every assumption this extension makes about the client and
-prints which ones still hold, as a table. `__cdc.build()` answers the same
-question for a build hotkey — which binding a press resolves to, and whether the
-client had a command on that key — and `__cdc.chords()` for a chord, including
-which prefixes resolved and from whose table.
-
-The first line of every diagnosis is the **version**: `__cdc.version` against
-`manifest.json`. If they differ, the extension did not reload and nothing else
-you see is current. `chrome://extensions` → the reload arrow on the card.
-
-If the map preview is missing, the loading screen says so in the preview's own
-slot instead of showing nothing.
-
-### The log, which outlives the tab
-
-A render run happens in a tab the extension opens and closes by itself, so the
-run whose result you are questioning is exactly the run whose narration goes
-with it. The **Log** tab on the options page is that narration kept in storage:
-the last 400 lines, newest at the bottom, filterable, with *Problems only* for
-the warnings and errors alone.
-
-Two sources feed it. The game tab's own narration, and, from the half that owns
-storage, **every write: attempted,
-then stored or failed.** The attempt is logged before the write starts, which
-is the whole point: a write that fails and a write that is never started look
-identical afterwards, and one of those is what left a map with a render and no
-card. `scripts/check-log.mjs` is the test of both rules, including that the log
-is handed over *before* the run's tab is allowed to close.
-
-The worker owns the key (`background.js`, `appendLog`), because three halves
-write to it and a key with three independent read-modify-write cycles loses
-entries.
-
-### Reading it from a shell
-
-```
-node scripts/read-storage.mjs            # every key in the extension's storage
-node scripts/read-storage.mjs log        # the log, one line per entry
-node scripts/read-storage.mjs pools bulk # any key, as JSON
-```
-
-`chrome.storage.local` is a LevelDB in the browser profile, and that script
-reads it **while the browser is running** — the tables in place, the
-write-ahead log through a copy. It finds the profile itself by looking for an
-unpacked extension loaded from this repo, so there is no id to keep up to date.
-
-This is what makes the log worth having for someone who is not sitting at the
-machine: a question about what the extension did is answered from a terminal,
-with no browser, no devtools and nothing to copy out by hand. It has no
-dependencies — snappy and the sstable format are implemented in the script,
-because this repo has no `package.json` and neither is available to it.
-
 ## The render in the UI
 
 The render is made **automatically, once per map**, right after a match finishes
 loading — that is the first moment the theater art exists — and stored. Every
-place that shows it reads from that store; none can produce one, so a map you
+place that shows it reads from that store. None can produce one, so a map you
 have never played has no render. *Render a map the first time it is played*,
-under **Settings**, is what turns that off; a render is then only made
+under **Settings**, is what turns that off. A render is then only made
 by *Render ticked* on a ladder tab or a card's own *Re-render*.
 
 **Both preview slots show it** — the loading screen and the in-game overlay —
@@ -1089,25 +1251,6 @@ the map is captured rather than after the theater art downloads, which is what
 gets it onto the loading screen instead of just after it — a map rendered in
 this tab still appears mid-loading only if it finishes in time.
 
-In game:
-
-| Key | What |
-|---|---|
-| **Alt+Enter** | the game's own fullscreen, moved off Alt+F (a setting) |
-| **`5`** | the game's own menu, moved off Escape (a setting) — press it again, or Escape, to leave |
-| **Esc** | closes the game's menu, or the full render; in a match with neither on screen, nothing |
-| **`3`** | swap both previews between the client's and ours, and keep the answer |
-| **`4`** | the whole render over the game, 90% of the viewport, translucent — click anywhere or press Esc to dismiss |
-| **`2`** | the production panel — all six queues, the empty ones included |
-| **qq · ww · ee · rr** | the sidebar tab as a grid of cameos under the cursor, each carrying its queue (see [Build chords](#build-chords)) — one press instead of two is a setting |
-| **a slot key held down** (~0.5 s) | fills that queue — the tap has already ordered one, the hold adds the rest that fits |
-| **Alt+slot key** | pause what that slot is building; again to cancel it. **Alt+Shift** cancels five, **Alt held down** cancels the lot |
-| **right click on a tile** | pause what is building, or cancel one of what is queued — Shift cancels all of them |
-| **Ctrl+q · w · e · r** | pause what that tab is building; again to cancel it. A finished building cancels at once |
-| **Ctrl+Shift+q · w · e · r** | cancel five, pausing first if it was still running |
-| **the key of a superweapon you own** | aims it — the client's targeting mode, so you still click the target |
-| **wwt (America) · wwg** | the two paradrops, which have no building key of their own |
-
 Which picture is shown is decided in three places, and they do not all mean the
 same thing:
 
@@ -1115,16 +1258,17 @@ same thing:
   the two in-game slots — the loading-screen panel and the overlay. It is off, so
   in game the default is our render wherever there is one.
 - **Show the map's own preview on cards**, in a ladder tab's list bar, is the
-  answer for *this page* — the cards and the viewer a click opens. It used to be
-  the same setting as the one above, which made a checkbox in a list of map
-  guides silently change what the game drew.
+  answer for *this page* — the cards and the viewer a click opens. It is a separate
+  setting from the one above, so a checkbox in a list of map guides never changes
+  what the game draws.
 - Each card has **Render · Original · Default** under its picture, and that beats
   both for that one map, on the page and in game alike. Our render is worth more
   on most maps and less on a few — a map whose own preview marks something the
   render does not — which is the whole reason a per-map answer exists. *Render*
-  is dead on a map that has none; the button under the guide makes one.
+  is dead on a map that has none. The button under the guide makes one.
 
-Changes reach a running game immediately. **`3` writes the in-game setting**
+Changes reach a running game immediately. **The swap key writes the in-game
+setting**
 rather than flipping it for the session: the choice survives a reload, and the
 checkbox moves with it. If the map in play had a card setting of its own, the
 swap clears it — that setting outranks the default, so leaving it would mean the
@@ -1136,21 +1280,20 @@ rebindable next to the others.
 
 ### Original means the map's own picture
 
-Nothing of ours is drawn on it. It used to carry the client's numbered start
-locations, put there by this extension on purpose (`MapPreviewRenderer#drawStartLocations`,
-which is what the lobby uses) — but those are the lobby's furniture rather than
-part of the map, and with them baked in there was no way to see the picture
-underneath.
+Nothing of ours is drawn on it. The client's numbered start locations
+(`MapPreviewRenderer#drawStartLocations`, which is what the lobby uses) are the
+lobby's furniture rather than part of the map, and baked in they leave no way to
+see the picture underneath.
 
-They were doing one job worth keeping. Many maps mark their own start positions
-in the preview — a red dot, drawn by whoever made the map — and many do not, and
-the numbers covered for both. So the preview is checked for a marker of its own,
-and **one found anywhere settles it for the whole map**: a map that marks its
-spawns is shown exactly as it is, and only a map that marks none gets dots of
-ours, in the same red, at every start position. Per-position was the first rule
-and it was worse — the marker a map draws and the start cell the client computes
-only roughly agree, so a marked map would come back with a second dot beside one
-of its own.
+They do one job worth keeping. Many maps mark their own start positions in the
+preview — a red dot, drawn by whoever made the map — and many do not, and the
+numbers cover for both. So the preview is checked for a marker of its own, and
+**one found anywhere settles it for the whole map**. A map that marks its
+spawns is shown exactly as it is. Only a map that marks none gets dots of ours,
+in the same red, at every start position. Per-position was the first rule and
+it was worse — the marker a map draws and the start cell the client computes
+only roughly agree, so a marked map would come back with a second dot beside
+one of its own.
 
 Where dots were added the card carries **Show missed spawn points**, on by
 default, per map: off shows the map's picture untouched.
@@ -1184,7 +1327,7 @@ when a render came out against theater art that had not finished loading.
 Renders are megabytes, so the extension asks for `unlimitedStorage`, keeps the
 last 60 (`MAX_RENDERS` in `src/bridge.js`), and the options page has **Clear
 renders** (guides and the map list stay). Auto-rendering costs a second or two
-of idle work per new map; nothing happens at all for a map already stored.
+of idle work per new map. Nothing happens at all for a map already stored.
 
 ## Full map render
 
@@ -1236,10 +1379,10 @@ owns what is attributed to the nearest start position, since the map file names
 an owning country rather than a slot.
 
 The outline goes on **before** the building, not after. It is a statement about
-the ground the building stands on, so the building — and any tree in front of it
-— hides it exactly the way it hides the ground: the two near edges of the
-footprint stay, and how much of the two far edges survives is how much relief
-the building has.
+the ground the building stands on. So the building — and any tree in front of
+it — hides the outline exactly the way it hides the ground. The two near edges
+of the footprint stay, and how much of the two far edges survives is how much
+relief the building has.
 
 ### The two sizes are two pictures
 
@@ -1256,17 +1399,18 @@ vocabulary, drawn *after* the downscale so it is sized in the pixels it has:
 | a pictogram's colour | white while unowned, the player's colour where the map hands the building over |
 | a start position | a numbered square in the player's colour — the Construction Yard footprint is eleven pixels by five here, which holds no number |
 
-So the glyphs are the one vocabulary the two sizes share; where they sit is what
+So the glyphs are the one vocabulary the two sizes share. Where they sit is what
 differs, and it follows from whether the building under them is legible.
 
 The pictograms carry a dark halo rather than a backing disc, so the glyph gets
 the whole mark instead of the inside of a circle. They are not all drawn at the
-style's box: `ICON_SCALE` (in `src/glyphs.js`) gives the parachute and the wrench half again as much,
-because a canopy with air under it and a thin tool on a diagonal leave most of a
-24×24 box empty and read as smaller marks beside a cross. The correction is
-optical, judged on the glyph sheet, not measured off the paths. The start
-square's number is black or white by the player colour's luma — a fixed ink
-disappears on player 6 (white) at one end or player 1 (blue) at the other.
+style's box. `ICON_SCALE` (in `src/glyphs.js`) gives the parachute and the
+wrench half again as much. A canopy with air under it, and a thin tool on a
+diagonal, leave most of a 24×24 box empty and read as smaller marks beside a
+cross. The correction is optical, judged on the glyph sheet, not measured off
+the paths. The start square's number is black or white by the player colour's
+luma — a fixed ink disappears on player 6 (white) at one end or player 1 (blue)
+at the other.
 
 The glyphs themselves are `src/glyphs.js`, not the renderer: three places draw
 them and only one can load the renderer — the render in the game tab, the
@@ -1276,7 +1420,7 @@ fractions of the picture, and whoever shows it paints them.
 
 `__cdcHq.list()` prints the glyph each structure gets, so a tech building this
 build has no icon for shows up as `marker` rather than disappearing into the
-map; add it to `BUILDING_ICONS` in `src/glyphs.js`. Both styles are
+map. Add it to `BUILDING_ICONS` in `src/glyphs.js`. Both styles are
 `MARK_STYLES` in the same file, and `render({ sizes: { x: { width: 600, marks:
 "compact" } } })` renders any width in either.
 
@@ -1298,8 +1442,8 @@ calls above are for looking at one by hand.
 
 ### Ladder maps, rendered in bulk
 
-A render used to exist only for a map you had **played** since the feature
-landed, and only ever at the renderer of the day. Neither is true any more.
+A render does not need the map to have been **played**, and does not stay at the
+renderer that made it.
 
 Every stored render carries the version of the renderer that made it
 (`RENDERER_VERSION` in `src/hq-preview.js`). Playing a map whose render is
@@ -1309,7 +1453,7 @@ whole set without playing anything.
 There are **two ranked ladders**, and they are two different pools rather than
 one: the 1v1 ladder plays 2-player maps and the 2v2 ladder mostly 4-player ones,
 with only a handful in common. Each has its own tab, its own sample, its own
-ticks and its own list of cards; nothing measured in one is evidence about the
+ticks and its own list of cards. Nothing measured in one is evidence about the
 other. (The API keys the team ladder `2v2-random`, not `2v2` — the client keeps
 the queue name and the ladder name in separate enums, and it is the ladder name
 that goes in the URL. See `LADDERS` in `src/ladder.js`.)
@@ -1328,10 +1472,10 @@ no sample yet opens unfolded, because the button that fixes that is inside it:
   readout names the period the matches were played over as well as the day the
   sample was taken: a pool is a claim about a stretch of time, and the two dates
   are not the same fact. A row states its last-played date **only when that is
-  not the day the ladder was read**, in a colour of its own — nearly every row
-  of a live pool was played that day, and the date repeated down the whole list
-  buried the rows where it is not, which are the maps on their way out. Untick
-  anything you do not want; **Select all** and **Clear selection** move every
+  not the day the ladder was read**, in a colour of its own. Nearly every row of
+  a live pool was played that day, and the date repeated down the whole list
+  buries the rows where it is not — which are the maps on their way out. Untick
+  anything you do not want. **Select all** and **Clear selection** move every
   tick at once.
 - **Each row ends on two verdicts** — which file the ladder plays, and what this
   machine holds of it — because "18 maps on the ladder, 16 cards below" is
@@ -1340,24 +1484,31 @@ no sample yet opens unfolded, because the button that fixes that is inside it:
   verdict, and the row's colour belongs to the mark at the end of it. **Red**
   *file unresolved* when no replay would name it, which leaves the map matched
   by its title, and a title can name two maps. The mark after it says what is
-  held: green *rendered*, amber *no render* for a map with a card but only its
-  own low-resolution preview, amber *rendered by title* for one drawn on a title
-  match rather than a file match, amber *rendered, no card* for a render in
-  storage that the catalogue has no entry for, red *not rendered* when nothing
-  here answers to it at all. How many of them are drawn is stated beside the
-  buttons — *Rendered 18 of 21 maps* — which is that slot's resting state: a
-  message takes it while it has something to say and gives it back afterwards.
-- **A pool remembers which resolver read it.** A stored sample outlives the code
-  that made it: when the resolver learned to read `.mpr` names, the two YR ports
-  in the 2v2 pool went on saying *file unresolved*, correctly — that is what the
-  sample said, taken before the fix — and nothing on screen could tell that from
-  a map the ladder genuinely never names. The summary now ends on *resolved by
-  an older build* when it does — with the *re-sample to fix the files* half
-  behind the `?` beside it — and the tooltip on such a row says the same. `RESOLVER_VERSION` in `src/ladder.js` is the stamp,
-  raised whenever a change there would answer differently for the same ladder.
+  held:
+
+  | mark | what this machine holds |
+  |---|---|
+  | green *rendered* | the map is drawn and carded |
+  | amber *no render* | a card, but only the map's own low-resolution preview |
+  | amber *rendered by title* | drawn on a title match rather than a file match |
+  | amber *rendered, no card* | a render in storage the catalogue has no entry for |
+  | red *not rendered* | nothing here answers to it at all |
+
+  How many of them are drawn is stated beside the buttons — *Rendered 18 of 21
+  maps*. That is the slot's resting state: a message takes it while it has
+  something to say, and gives it back afterwards.
+- **A pool remembers which resolver read it.** A stored sample outlives the
+  code that made it. When the resolver learned to read `.mpr` names, the two YR
+  ports in the 2v2 pool went on saying *file unresolved* — correctly, because
+  that is what the sample said, taken before the fix. Nothing on screen could
+  tell that from a map the ladder genuinely never names. The summary now ends
+  on *resolved by an older build* when it does — with the *re-sample to fix the
+  files* half behind the `?` beside it — and the tooltip on such a row says the
+  same. `RESOLVER_VERSION` in `src/ladder.js` is the stamp, raised whenever a
+  change there would answer differently for the same ladder.
 - **Render ticked** renders them. The options page cannot do this itself — it has
   no game client and therefore no theater art — so a game tab does the work and
-  reports progress back. **It no longer has to be one you opened**: if nothing
+  reports progress back. **It does not have to be one you opened**: if nothing
   answers within a second and a half, the extension opens one in the background,
   the run happens there, and the tab closes itself when it ends. A map already
   rendered by the current renderer is skipped — a card's own **Re-render** is
@@ -1375,7 +1526,7 @@ every map (`Engine.getMapList()`) and already knows how to fetch one
 (`MapFileLoader#load` — the game's own archives first, the maps CDN second), so
 the run asks it, the same way the game does.
 
-**How a run gets a client.** The request is a storage write; a game tab that is
+**How a run gets a client.** The request is a storage write. A game tab that is
 already open picks it up in milliseconds. If none has after 1.5 s the options
 page asks the service worker — the only half of the extension that can open a
 tab — for one, inactive so it never takes the screen and muted so the client's
@@ -1389,8 +1540,8 @@ animation frames at all, and the client's own start-up uses both. So a tab that
 shows no sign of a client after 25 s is **brought to the front by the extension**
 and says so, rather than sitting there looking like a slow one. Nothing here is
 ever something to do by hand — if a run needs a client, it gets one. (A replay
-re-run no longer waits for that: it holds the frame pump below for the client's
-boot, and boots where it stands. A render run still nudges.) **Only a tab the
+re-run does not wait for that: it holds the frame pump below for the client's
+boot, and boots where it stands. A render run nudges.) **Only a tab the
 worker opened is ever closed** — the ids live in `chrome.storage.session`,
 because an MV3 worker is torn down while idle and a run takes minutes, and
 `scripts/check-background.mjs` is a test of that one rule. A run in a tab you
@@ -1398,56 +1549,51 @@ opened yourself leaves it exactly where it was.
 
 The limits are worth knowing:
 
-- **Theater art comes from the client, and a match is no longer the price of
-  it.** With locally imported game files any theater loads cold. In CDN resource
-  mode `Engine.loadTheater` does not fetch — it builds a theater out of the VFS
-  — so only theaters played this session used to work, and a run started after a
-  temperate game rendered the temperate maps and failed every snow one. The
-  fetching half is `GameLoader#loadTheater`, and the extension used to reach it
-  by holding the `GameLoader` the client built when a match started: *one match,
-  any theater, unlocked the whole pool*, and a tab that had played nothing could
-  do nothing.
-
-  That requirement is gone. `GameLoader#loadTheater` reads exactly two fields of
-  its own object — `gameResConfig.isCdn()` and `cdnResourceLoader` — and both
-  can be built from parts the client already has up on its main menu: the CDN
-  base out of `ImageContext.cdnBaseUrl`, the checksums out of `manifest.json` at
-  that base, and `Engine.getCacheDir()` for the cache. So the extension calls
-  the client's own `loadTheater` with a stand-in of two fields, and a tab that
-  has only reached the main menu renders anything. The cache is the client's own,
-  which means a mix it has already downloaded is read from disk — and the main
-  menu prefetches every theater into it a few seconds after it appears.
-  `__cdc.probe()` still reports `gameLoaderHeld`; it now says which of the two
-  routes a run will take, not whether it can run at all.
+- **Theater art comes from the client, and a match is not the price of it.**
+  With locally imported game files any theater loads cold. In CDN resource mode
+  `Engine.loadTheater` does not fetch — it builds a theater out of the VFS — so
+  a run drawing only on that would render the theaters played this session and
+  fail every other one. The fetching half is `GameLoader#loadTheater`, and it
+  reads exactly two fields of its own object: `gameResConfig.isCdn()` and
+  `cdnResourceLoader`. Both can be built from parts the client already has up
+  on its main menu — the CDN base out of `ImageContext.cdnBaseUrl`, the
+  checksums out of `manifest.json` at that base, and `Engine.getCacheDir()` for
+  the cache. So the extension calls the client's own `loadTheater` with a
+  stand-in of two fields, and a tab that has only reached the main menu renders
+  anything. The cache is the client's own, which means a mix it has already
+  downloaded is read from disk — and the main menu prefetches every theater
+  into it a few seconds after it appears. `__cdc.probe()` reports
+  `gameLoaderHeld` as which of the two routes a run will take, not whether it
+  can run at all.
 - **A run reports what was stored, not just what was rendered.** `render()`
-  resolving means the picture exists in the tab; it still has to cross into the
+  resolving means the picture exists in the tab. It still has to cross into the
   other world and be written, and a write can fail there. A failed write now
   lands in the run's failure list even when the acknowledgement arrives after the
   run has finished. A map whose file carries no `[PreviewPack]` is listed too:
   it renders fine and gets no card, which makes it invisible in the catalogue.
   The map list header shows how many renders are stored and how many megabytes
-  they take, which is what separates "storage is full" from "that map is broken"
-  — as **`N of NN renders stored · M MB of MM MB in storage`**, the tab's own
-  share against the extension's whole, because a page split by ladder invites
-  the question of which ladder is costing the space. The megabytes counted for a
-  tab are its full-size renders; thumbnails share one storage item and cannot be
+  they take, which is what separates "storage is full" from "that map is
+  broken". It reads **`N of NN renders stored · M MB of MM MB in storage`** —
+  the tab's own share against the extension's whole, because a page split by
+  ladder invites the question of which ladder is costing the space. The megabytes counted for a
+  tab are its full-size renders. Thumbnails share one storage item and cannot be
   weighed per map, so the two figures are not meant to add up to each other
   (hover the readout — it says so).
 - **Storage.** Sixty renders at up to ~24 MB each is the ceiling
   (`MAX_RENDERS` in `src/bridge.js`), which is what the extension asks for
-  `unlimitedStorage` for. *Clear renders* empties it; the **Stored maps** tab
+  `unlimitedStorage` for. *Clear renders* empties it. The **Stored maps** tab
   below empties it a map at a time.
 
 ### Stored maps
 
-A ladder tab lists that pool's maps and nothing else, so a map rendered from a
-match on anything the ladder does not play — a third of a real store — had no
-card anywhere, and the only way to delete one was *Clear renders*, which deletes
-all of them.
+A ladder tab lists that pool's maps and nothing else. That leaves a map
+rendered from a match on anything the ladder does not play — a third of a real
+store — with no card anywhere, and the only way to delete one would be *Clear
+renders*, which deletes all of them.
 
 The **Stored maps** tab is the store's own view. Every map that has a card or a
 render, **heaviest first**, because the reason to open it is usually that storage
-is filling up; each row says what its render costs, when it was made, which
+is filling up. Each row says what its render costs, when it was made, which
 renderer made it, whether it has a guide, and which sampled pool it is in. Tick
 rows — or *Select all*, which takes whatever the filter left — and then either
 
@@ -1458,11 +1604,11 @@ rows — or *Select all*, which takes whatever the filter left — and then eith
 The guide survives both. It is the one thing here a human wrote, and everything
 else regenerates.
 
-**The cap no longer eats guides.** Past `MAX_RENDERS` the store used to evict the
-oldest render whatever it was, silently — which broke the one promise it makes,
-that a map rendered once stays rendered. It now walks past any map with a guide
-and past the map just rendered; if every candidate is spoken for, the store goes
-over the cap rather than throwing notes away. What it does take is recorded, and
+**The cap does not eat guides.** Evicting the oldest render whatever it was would
+break the one promise the store makes, that a map rendered once stays rendered.
+Past `MAX_RENDERS` it walks past any map with a guide and past the map just
+rendered. If every candidate is spoken for, the store goes over the cap rather
+than throwing notes away. What it does take is recorded, and
 this tab says so until it is dismissed.
 
 ### Replays
@@ -1490,10 +1636,10 @@ two different heights. The faction sits on the nickname's line for the same
 reason: a whole row of the header was being spent on one word.
 
 **A header block is as wide as the panel, not as wide as the build order under
-it.** The five columns of the grid are a picture gutter, a side's lines, the
-clock, the other side's lines, a picture gutter — and the two gutters are what
-absorb whatever the panel has left over, rather than the grid being centred with
-the remainder down its two edges where nothing can be put. The header's blocks
+it.** The grid has five columns: a picture gutter, a side's lines, the clock,
+the other side's lines, a picture gutter. The two gutters absorb whatever the
+panel has left over. Centring the grid instead would put that remainder down its
+two edges, where nothing can go. The header's blocks
 span their gutter as well as their own column, so a side's losses read as chips
 across the width instead of a stack one chip wide beside two strips of empty
 panel. The clock column between them is untouched by the spans, which is what
@@ -1501,35 +1647,36 @@ keeps it over the axis's own.
 
 The centre axis is the whole point of the layout. Two build orders in two
 columns can only be compared by reading a time off one and hunting for it in the
-other; with a shared axis the eye does it — who reached a refinery first is a
+other. With a shared axis the eye does it — who reached a refinery first is a
 glance at which side of the same row is filled, and a run of rows filled on one
 side only is a lead, visible without reading a word. Things done in the same
 second share one clock reading rather than becoming two rows that look
-sequential. A team game splits by team; a match that has no two sides (three
+sequential. A team game splits by team. A match that has no two sides (three
 free-for-all players, or slots with no team id) falls back to a column per
 player rather than inventing a pairing.
 
 Two ways in, because a replay arrives under two different names:
 
 - **paste** the leaderboard's game page (`ladder.chronodivide.com/…/game/<id>`),
-  the client's own `#/replay/<url>` route, the `.rpl` link itself, or a bare game
-  id;
-- **list a player's recent ranked matches** off the ladder and click one — the
-  same match-history call the pool sampler uses (`src/ladder.js`).
+  the client's own `#/replay/<url>` route, the `.rpl` link itself, or a bare
+  game id.
+- **list a player's recent ranked matches** off the ladder and click one. That
+  is the same match-history call the pool sampler uses (`src/ladder.js`).
 
 **Both ways in are remembered**, so the second time is a click: two panes sit
-under the boxes, side by side and each under the box it fills — the replays that
-have been opened on the left, and on the right the names the ladder has been
-asked about over the list that answering one draws. A listed match is four short
-columns, so stacked full width the pair was mostly air, and every line they took
-was a line the report started lower by. A player entry carries the realm and
-ladder it was last asked with, since the same name has a different history on
-each, but it is **kept under the name alone**: asking 1v1 and then 2v2 about one
-player used to write two chips reading the same word. It is written only when the
-ladder answers with matches, so a typo never joins the list. A replay entry is
-written after a successful read and holds everything its row needs — map, both
-names, duration, when it was played — so the list draws with no request made.
-Each entry has a `×` that removes that one.
+under the boxes, side by side and each under the box it fills — the replays
+that have been opened on the left, and on the right the names the ladder has
+been asked about over the list that answering one draws. A listed match is four
+short columns, so stacked full width the pair would be mostly air, and every
+line they took would be a line the report started lower by. A player entry
+carries the realm and ladder it was last asked with, since the same name has a
+different history on each, but it is **kept under the name alone**, so asking
+1v1 and then 2v2 about one player does not write two chips reading the same
+word. It is written only when the ladder answers with matches, so a typo never
+joins the list. A replay entry is written after a successful read and holds
+everything its row needs — map, both names, duration, when it was played — so
+the list draws with no request made. Each entry has a `×` that removes that
+one.
 
 They live in `localStorage`, beside the losses preference, rather than in
 `chrome.storage.local` — that is the extension's measured half, and twelve short
@@ -1553,11 +1700,10 @@ is, is said by the space.
   sit beside a sign and add to it rather than compete with it — `✓ +War Factory`
   is *finished, and standing*, two facts about one row.
 
-The two were one list until 0.46.2, and the space was whatever each glyph
-happened to carry: `+Rhino` and `✓ War Factory` looked like the same kind of
-statement while `⇄` sat at the far end of its row saying a third thing in a
-fourth position. One rule for where a mark goes is worth more than any of the
-placements it overrides.
+One rule for where a mark goes is worth more than any of the placements it
+overrides. As one list with each glyph carrying its own spacing, `+Rhino` and
+`✓ War Factory` read as the same kind of statement while `⇄` sat at the far
+end of its row saying a third thing in a fourth position.
 
 | row | what it is |
 |---|---|
@@ -1567,9 +1713,9 @@ placements it overrides.
 | `✓ `, dim accent, after a re-run | the building **finished** and stood waiting to be placed |
 | `+`, in the page's accent | **placed** — the building exists at that second, and how far it sits from the `✓` above it is how long the player sat on it. A building placed the second it finished carries `✓ +`: both are true of the one row, and the `✓` is drawn at the readiness row's own dimness, because the bright claim here is that the building exists |
 | `+n`, after a re-run | a unit **came out** of a queue. Buildings are not on this track: a building appears by being placed, and `tryPlaceBuilding` refuses unless the queue is already `Ready`, so the placement row is its delivery |
-| `<> `, in violet, after a re-run | a base **stood up** — an MCV deploying. The one row that carries no sign: nothing was gained, a vehicle became a building; see below |
+| `<> `, in violet, after a re-run | a base **stood up** — an MCV deploying. The one row that carries no sign: nothing was gained, a vehicle became a building. See below |
 | `−n`, after a re-run | lost |
-| `⇄ `, before the sign | the building **changed hands** — the `+` or `−` after it says which way. Two rows at one second, one on each side of the clock; see below |
+| `⇄ `, before the sign | the building **changed hands** — the `+` or `−` after it says which way. Two rows at one second, one on each side of the clock. See below |
 | `⚑ `, in small caps | the side **left the match** — `resigned` where it was a decision, the quieter `dropped out` where the client recorded a dead base. It comes out of the file, so it is there with no re-run, and it is drawn above the losses of its own second: everything a resigning player owns dies in that instant, and the wall of `−` under the flag reads as its consequence |
 
 Repeated orders of the same thing inside ten seconds fold into one row: eight
@@ -1582,9 +1728,10 @@ down each edge. The *icons* checkbox takes them away for a reading that wants th
 words alone.
 
 **A picture is per run, not per row, and its size says how long the run is.**
-Where a stretch of one side's rows is about one thing — `Power Plant` ordered,
-finished, placed, or four Rhinos coming out one after another — those rows get
-**one** picture, drawn bigger, with a bracket down the gutter linking them to it.
+A stretch of one side's rows is often about one thing — `Power Plant` ordered,
+finished, placed, or four Rhinos coming out one after another. Those rows get
+**one** picture, drawn bigger, with a bracket down the gutter linking them to
+it.
 Every picture, run or not, draws a leader from itself to the words, so a lone row
 is as easy to associate as a braced one:
 
@@ -1596,20 +1743,20 @@ is as easy to associate as a braced one:
  ▪▪     ── 0:21  $ Conscript ×8
 ```
 
-**A leader is one element, drawn by the row.** It reaches out of its own cell by
-a negative margin into the gutter beside the picture, and the bracket's upright
-stands at the far end of that reach and carries no horizontal of its own. Drawn
-in two halves — an arm in the gutter meeting the row's rule at the column edge —
-they were placed by two different rules and landed half a pixel apart, so one
-rule rounded onto the same device row at some zooms and onto neighbouring ones at
-others and stepped up or down halfway along.
+**A leader is one element, drawn by the row.** It reaches out of its own cell
+by a negative margin into the gutter beside the picture, and the bracket's
+upright stands at the far end of that reach and carries no horizontal of its
+own. Drawn in two halves — an arm in the gutter meeting the row's rule at the
+column edge — they would be placed by two different rules and land half a pixel
+apart. One rule would round onto the same device row at some zooms and onto
+neighbouring ones at others, so the leader would step up or down halfway along.
 
 **A run is one object's chain, not its name repeated.** Naming the same thing
 twice running is necessary and not enough: the rows have to be one passage from
 intent to existence — ordered, then finished, then standing. A **new order after
 a placement starts a new section**, because that is a second building rather than
-more news about the first; a **placement and a death** of one thing are two
-pictures, because they are two events; and two rows that are neither stage of
+more news about the first. A **placement and a death** of one thing are two
+pictures, because they are two events. And two rows that are neither stage of
 anything join only when they are the same claim — two deaths are one loss, two
 deliveries are one batch.
 
@@ -1642,7 +1789,7 @@ line never wraps to accommodate.
 — which is `time`, the caption over it, on a report whose times are all shorter.
 A fixed 56px was two guesses in one: too wide for `12:34`, which left a strip of
 nothing down the middle twice over, since each side already keeps its own ten
-pixels off the rules; and too narrow for `8:55 (35:42)`, which is what the `both`
+pixels off the rules. And too narrow for `8:55 (35:42)`, which is what the `both`
 clock prints, so every row of that report wrapped onto two lines and the axis came
 out twice as tall.
 
@@ -1654,12 +1801,12 @@ takes about a tenth of a second.
 
 The game's 60×48 cameo is cropped to its top 36 rows, which drops the unit's
 name — painted into the artwork — and leaves the picture. An object the game
-gives no cameo shows none rather than a stand-in; the two a build order needs and
+gives no cameo shows none rather than a stand-in. The two a build order needs and
 the game does not have (both Construction Yards) borrow the icon of the thing
 that becomes them.
 
-**It happens on the way into the game** (0.75.0), without being asked and
-without anything to ask about: nothing is downloaded, because the art is already
+**It happens on the way into the game**, without being asked and without
+anything to ask about: nothing is downloaded, because the art is already
 in the game files the client loaded. Every load compares two stamps — the
 client's version and the harvester's own — and a client that has not changed
 costs nothing at all. One that has, whether new art or a change to how the
@@ -1671,42 +1818,41 @@ browser is retried for five minutes and otherwise left to the next visit —
 measured rather than guessed: a fresh profile took just over two minutes to have
 rules, which an earlier two-minute budget missed by seconds.
 
-**It brings back more than the committed sheet ever had.** Measured against a
-live client on 2026-08-20: **405 ids as 99 pictures**, six of them named by the
-art and absent from the archives, against the 101 ids and 88 pictures the
-offline generator produced. That route read `Cameo=` out of the art text by hand
-and had to follow the `Image=` indirection itself; the client has already done
-that for every object it knows.
+**It brings back more than an offline generator can.** Measured against a live
+client on 2026-08-20: **405 ids as 99 pictures**, six of them named by the art
+and absent from the archives, against the 101 ids and 88 pictures a generator
+reading `Cameo=` out of the art text produced. That route has to follow the
+`Image=` indirection itself. The client has already done that for every object it
+knows.
 
-**Harvest cameos** (0.74.0), on the Replays tab, is the same run asked for by
-hand — it opens a game tab itself if none is listening, the way the replay
-controls do. It is there to force a rebuild and to recover when the automatic
-one has not happened; a pool render run harvests too, rather than asking twice.
+**Harvest cameos**, on the Replays tab, is the same run asked for by hand — it
+opens a game tab itself if none is listening, the way the replay controls do.
+It is there to force a rebuild and to recover when the automatic one has not
+happened. A pool render run harvests too, rather than asking twice.
 
-Two reasons it exists, and the first is the one that matters. **The sheet this
-repo used to commit was artwork from a retail Red Alert 2 install, and no licence
-this repo can adopt covers it** — EA has never released RA2's assets, so shipping
-those pixels asserted a right the author does not hold. Harvested at runtime they
-never enter the repo. The second is that a harvest follows the client: it picks
-up art changes without a regenerated commit, and it is the player's own
-localisation rather than the Russian one baked into the install the committed
-sheet came out of. It also carries seven superweapon icons where the generator
-could reach only two, a superweapon having no `Image=` chain for the offline
-route to walk.
+Two reasons it works this way, and the first is the one that matters. **A cameo
+sheet committed to this repo would be artwork from a retail Red Alert 2 install,
+and no licence this repo can adopt covers it** — EA has never released RA2's
+assets, so shipping those pixels would assert a right the author does not hold.
+Harvested at runtime they never enter the repo. The second is that a harvest
+follows the client: it picks up art changes without a regenerated commit, and it
+is the player's own localisation rather than whichever one a committed sheet was
+generated from. It also carries seven superweapon icons where an offline
+generator reaches two, a superweapon having no `Image=` chain to walk.
 
-**The committed sheet is now deleted**, along with the object table beside it and
-the generators that built both. There is no fallback left, and that is deliberate
-rather than an oversight: until a profile has harvested once, a build order draws
-in words and names objects by their ids. Opening the game once with the extension
+**There is no committed sheet and no fallback**, and that is deliberate rather
+than an oversight: until a profile has harvested once, a build order draws in
+words and names objects by their ids. Opening the game once with the extension
 installed is the whole of the fix, and it happens without being asked.
 
 **An order's count is what the game accepted, not how many times the mouse went
-down.** The engine takes `min(asked, queue room, per-type room, build limit)` and
-drops the rest, and the queues are small — 30 of a type in a unit tab, **one** building
-at a time, and an aircraft queue no bigger than the free helipad docks. Since the
+down.** The engine takes `min(asked, queue room, per-type room, build limit)`
+and drops the rest. The queues are small: 30 of a type in a unit tab, **one**
+building at a time, and an aircraft queue no bigger than the free helipad
+docks. Since the
 sidebar clamps a click against the player's *local* model, which lockstep only
 advances when the action executes, a burst of clicks all see the same stale free
-space and all get sent; the surplus is dropped on arrival. Those are
+space and all get sent. The surplus is dropped on arrival. Those are
 **overclicks**, counted apart and shown only when the checkbox above the timeline
 asks for them — a row of 45 IFVs inside ten seconds is a description of a mouse,
 not of a match. **A cancel is not one of them**: cancelling more than a queue
@@ -1732,7 +1878,7 @@ who.
 
 **What a replay file cannot tell you**, and no amount of parsing will: credits,
 kills, **losses**, or what a production queue actually finished. A replay records
-what each player *did*; those are what *happened to them*, and only the
+what each player *did*. Those are what *happened to them*, and only the
 simulation knows. Buildings are the exception, which is why structures are the
 spine of the report.
 
@@ -1742,15 +1888,15 @@ credits, never loses power, never loses a factory — so its occupancy is a floo
 under the real one: every overclick it reports is certain, every accepted order
 is an upper bound. **That floor is evidence in one direction only.** A queue
 already full in the fastest possible model is certainly full in the real one,
-which is what makes a refused order a fact; a *cancel* it cannot cover states
-nothing at all, since the real queue held at least as much and may have absorbed
-the whole thing. Reading the floor backwards is what once put 79 phantom
-overclicks on a four-minute match that contains one. What it cannot see at all is the engine emptying a queue when
-its factory dies, so beyond half a second since a queue was last touched it
-resyncs rather than reject: the client would not have sent the order had its own
-model shown the queue full. That window is measured — thirteen re-orders of a
-building still in a queue that holds one, every one inside 0.27 s, and the next
-observation 128 s away.
+which is what makes a refused order a fact. A *cancel* it cannot cover states
+nothing at all, since the real queue held at least as much and may have
+absorbed the whole thing. Reading the floor backwards is what once put 79
+phantom overclicks on a four-minute match that contains one. What it cannot see
+at all is the engine emptying a queue when its factory dies, so beyond half a
+second since a queue was last touched it resyncs rather than reject: the client
+would not have sent the order had its own model shown the queue full. That
+window is measured — thirteen re-orders of a building still in a queue that
+holds one, every one inside 0.27 s, and the next observation 128 s away.
 
 #### Run the match
 
@@ -1762,9 +1908,9 @@ the harvest is stored per match, so it is a one-off cost per replay.
 
 **The first seconds are not watched.** `play()` waits for the match to start by
 polling `game.status` on a 250 ms sleep, and only then imports `EventType` and
-subscribes to the spawns, deaths and captures — so at the ~1000 game-ticks a
-second a harvest runs at, one poll interval is **hundreds of ticks, several game
-seconds**, and everything inside it is gone rather than late. It shows in the
+subscribes to the spawns, deaths and captures. At the ~1000 game-ticks a second
+a harvest runs at, one poll interval is **hundreds of ticks, several game
+seconds**. Everything inside it is gone rather than late. It shows in the
 data: no harvest on disk holds a single tick-0 starting unit, and a fast opening
 deploy can fall inside the window while the opponent's slower one survives. That
 is why the base's arrival is read out of the **file** wherever the file can prove
@@ -1792,18 +1938,18 @@ What that adds to the report:
   the drop once the base is already gone. Nothing is withheld behind a `+n more`:
   the tail was exactly the half a re-run is run for. The per-type detail comes
   from the destroy events, because the client's own counters are keyed by
-  `ObjectType` and can only say "26 infantry, 10 buildings, 4 vehicles"; the
+  `ObjectType` and can only say "26 infantry, 10 buildings, 4 vehicles". The
   cumulative curve is beside them.
 - **Every loss total opens into units and buildings.** `40 LOST`, and the `40
-  lost` in the statistics sentence, are one number over two very different facts
-  — thirteen losses is a skirmish if they were infantry and a base if three were
-  buildings — so a click puts `(30 UNITS · 10 BUILDINGS)` after it and a second
-  click folds it back. **Both sides of a row open together**, since the header
+  lost` in the statistics sentence, are one number over two very different
+  facts: thirteen losses is a skirmish if they were infantry, and a base if
+  three were buildings. So a click puts `(30 UNITS · 10 BUILDINGS)` after it,
+  and a second click folds it back. **Both sides of a row open together**, since the header
   exists to be read across the clock. Each total splits from its **own** source:
   the sentence off the client's `byKind` counter, a block caption off the destroy
   events it counted, so a number and its parts can never disagree. The units
   figure keeps what the source knew — `26 infantry · 4 vehicles` — as its title.
-  Collapsed by default and unchanged when collapsed; a harvest taken before the
+  Collapsed by default and unchanged when collapsed. A harvest taken before the
   client was asked for the breakdown keeps a plain number rather than opening
   onto nothing. Nothing is stored: the state lives in the page, so a redraw folds
   it back.
@@ -1827,7 +1973,7 @@ What that adds to the report:
   placement — with exactly one exception: a Construction Yard from a deploying
   MCV is created by `DeployOrder`, so no `PlaceBuilding` stands behind it. So the
   re-run's test is the **pairing**, not the type: a building spawn a placement
-  accounts for *is* that placement and draws nothing extra; one no placement
+  accounts for *is* that placement and draws nothing extra. One no placement
   accounts for gets a `<>` row of its own, in a violet nothing else on the page
   uses. One placement absorbs one spawn, nearest first and within two seconds —
   the two times are the same moment read off two clocks — and only its own
@@ -1842,8 +1988,8 @@ What that adds to the report:
   events: **a player cannot place a single building until their Construction Yard
   exists, and the first Construction Yard comes from the MCV deploying.** So a
   deploy order issued before that player's first placement is that MCV by
-  construction, not by likelihood — no infantry has been built, no second vehicle
-  bought, nothing else they own can deploy. What stood up is named from the
+  construction, not by likelihood. No infantry has been built, no second vehicle
+  bought, and nothing else they own can deploy. What stood up is named from the
   player's country, which is in the file's own header and belongs to one side.
 
   Where both saw it they are one row and the re-run wins the second, since an
@@ -1854,17 +2000,15 @@ What that adds to the report:
   told which tanks came out, not to stop being told the base moved.
 - **A building changing hands.** An engineer walking into a refinery moves a
   whole building from one side of the match to the other, and the file records
-  only the order that sent him. A capture is **two rows at the same second** —
-  `⇄ +Soviet Ore Refinery` in cyan on the side that took it, `⇄ −Soviet Ore
-  Refinery` in dark orange on the side it came off — and one row when
-  the building came off nobody in the match, a neutral oil derrick. The `⇄` is
-  the kind of event and the `+`/`−` is which way it went; it was the word
-  *captured* until 0.45.2, which made a capture the longest line in a column
-  sized by its longest line, and it sat at the far end of the row until 0.46.2
-  put every mark in front. **No loss
-  number moves for one:** nothing was destroyed, so it is neither a loss nor a
-  delivery, and the counters, the blocks, the split and the curve all stay where
-  they were.
+  only the order that sent him. A capture is **two rows at the same second**:
+  `⇄ +Soviet Ore Refinery` in cyan on the side that took it, and `⇄ −Soviet Ore
+  Refinery` in dark orange on the side it came off. It is one row when the
+  building came off nobody in the match, a neutral oil derrick. The `⇄` is the
+  kind of event and the `+`/`−` is which way it went. It is a glyph rather than
+  the word *captured*, which would make a capture the longest line in a column
+  sized by its longest line. **No loss number moves for one:** nothing was
+  destroyed, so it is neither a loss nor a delivery, and the counters, the
+  blocks, the split and the curve all stay where they were.
 
   It takes **two** of the client's events and only their pair means captured.
   `ObjectOwnerChange` names both sides but fires for everything that changes
@@ -1889,7 +2033,7 @@ The mechanics, and why each piece is the way it is:
 |---|---|
 | `src/replay-sim.js` | page-world, inert until the bridge hands it a job, and it refuses to run anywhere but a `#/replay/` route — this may never touch a live match |
 | the turn loop | calls the client's own `doGameTurn` in 100 ms bursts, yielding through a `MessageChannel` rather than a timer, because a background tab clamps timers to a second |
-| the destroy filter | **the owner is the whole filter** — the event bus reports 695 destroyed objects for this match, of which 44 belong to a player; the rest are projectiles, debris and the map's invisible markers |
+| the destroy filter | **the owner is the whole filter** — the event bus reports 695 destroyed objects for this match, of which 44 belong to a player. The rest are projectiles, debris and the map's invisible markers |
 | the spawn filter | the same one, plus an id seen once: `ObjectSpawn` fires again for an object that leaves the map and returns, and it was built one time |
 | the roster | captured once at the start, because `getCombatants()` drops a player the moment they are defeated, which is exactly whose losses you were reading |
 | `src/frames.js` | the frame pump — a run holds it for the client's *boot*, and gives it back the moment the match is playing (below) |
@@ -1898,20 +2042,20 @@ The mechanics, and why each piece is the way it is:
 It is also the most fragile thing in the extension: the parser only needs the
 file format, while this needs the client's internals to keep their names.
 
-**A re-run happens in a tab you are not looking at, and that used to be the
-problem.** The turn loop was built for a hidden tab from the start — it breathes
-through a `MessageChannel`, which is not throttled — but the client has to *boot*
-before there is a match to play, and a boot advances from inside
-`requestAnimationFrame`, which a hidden tab never calls. So the run sat waiting
-for a match that was never going to start, for the five minutes it allows,
-and came back with *timed out waiting for the match*.
+**A re-run happens in a tab you are not looking at, and that is the hard part.**
+The turn loop is built for a hidden tab: it breathes through a `MessageChannel`,
+which is not throttled. But the client has to *boot* before there is a match to
+play, and a boot advances from inside `requestAnimationFrame`, which a hidden
+tab never calls. Left to itself the run waits for a match that is never going to
+start, for the five minutes it allows, and comes back with *timed out waiting for
+the match*.
 
 `src/frames.js` is the answer: a content script at `document_start` (before the
 client captures `requestAnimationFrame`, or the replacement would be one nothing
 calls) that hands frames to the real one while the tab is visible and drives them
 itself while it is not. It is **inert until a job holds it** — a tab you are
 playing in has the browser's own frames and nothing else. The clock under it is a
-worker's, because a worker's timers are not clamped with the page; where a page's
+worker's, because a worker's timers are not clamped with the page. Where a page's
 policy refuses a blob worker it falls back to a `MessageChannel` loop and says so
 in the log. `node scripts/check-frames.mjs` drives the shipped file through both.
 
@@ -1927,31 +2071,31 @@ trails all take themselves out of the scene there. So a match played out in a ta
 the client believes is hidden creates renderables for every one of thirty
 thousand ticks of combat and disposes of none of them, in canvases and three.js
 geometry — memory `performance.memory` cannot see. That is a fact about the
-client, and it was read out of its own code; whether it is *the* reason seven
+client, and it was read out of its own code. Whether it is *the* reason seven
 tabs have died between ticks 31 344 and 31 909 of 32 130, while the measured heap
 moved 68 MB against a 4192 MB ceiling, is a different question and an open one.
 
-So a run spoofs `document.hidden` for its own tab and for its own duration, the
-pump supplies the frames that make the claim true, and a match over 20 000 ticks
-is paced at 240 ticks a second — the client's own ×16, the speed the same replay
-was watched through at. `src/frames.js` reads the platform's own visibility
+So a run spoofs `document.hidden` for its own tab and for its own duration, and
+the pump supplies the frames that make the claim true. A match over 20 000
+ticks is paced at 240 ticks a second — the client's own ×16, the speed the same
+replay was watched through at. `src/frames.js` reads the platform's own visibility
 accessor rather than `document`, so the lie the client is told cannot fool the
 pump that has to keep feeding it.
 
 **And it is still not enough — the tab has to be one the browser really shows.**
-With the spoof in place the client does render again (the heap grows 217 MB over
+With the spoof in place the client does render again: the heap grows 217 MB over
 a match instead of 68, and the measured ticks per frame come out at three to
-four, the watched configuration exactly) and the tab is lost anyway, at tick
-31 909 of 32 130. The same run in a tab **the browser genuinely shows** plays the
+four, the watched configuration exactly. The tab is lost anyway, at tick 31 909
+of 32 130. The same run in a tab **the browser genuinely shows** plays the
 match out — tick 32 092 of 32 130, 143 seconds, and the heap **ends where it
 started**: 1073 MB after the boot, 1069 MB at the end, against +217 MB in every
-hidden run. Seven hidden runs died between ticks 31 344 and 31 909; the first
+hidden run. Seven hidden runs died between ticks 31 344 and 31 909. The first
 visible one finished.
 
 So telling the client the tab is visible is not the same as the tab being
-visible: the frames it then draws are for a compositor that never takes them, and
-whatever that costs is outside everything a page can measure — the JS heap was
-flat through all of it, against a 4192 MB ceiling.
+visible. The frames it then draws are for a compositor that never takes them,
+and whatever that costs is outside everything a page can measure. The JS heap
+was flat through all of it, against a 4192 MB ceiling.
 
 **Therefore a match over 20 000 ticks is re-run in front of you**, and the panel
 says so when it starts one. Shorter matches — which have never failed hidden —
@@ -1964,13 +2108,13 @@ visibility are what this failure turns on and both are better dialled than argue
 about:
 
 - *re-run at N ticks/s* — empty leaves the rule above, `0` means flat out
-  whatever the length, anything else is held to exactly. 240 is the client's ×16;
-  flat out reaches about 2700 on this machine.
+  whatever the length, anything else is held to exactly. 240 is the client's ×16.
+  Flat out reaches about 2700 on this machine.
 - *Always run in a visible tab* — does for every match what a long one does
   anyway. Useful for finding where the boundary really is, since 20 000 ticks is
   drawn from one match that dies and several that do not.
 
-Both are remembered, and the rate travels with the job; the run's opening log
+Both are remembered, and the rate travels with the job. The run's opening log
 line states the rate it actually used.
 
 The pump **drops a backlog**: the clock keeps ticking while
@@ -1979,36 +2123,33 @@ waiting afterwards would draw six frames back to back. The real
 `requestAnimationFrame` delivers one callback per frame it actually produced, and
 so does this.
 
-The nudge is still there for the replay run, but it is now the fallback it was
-meant to be: it tests **ticks** rather than that a tab picked the job up
-(`started` is written a second after the tab opens, which is why the nudge on
-this path used to be suppressed by the very state it was meant to catch), and it
-waits the same 25 s as the render run — after a day of waiting 90. The longer
-window was set on the reading that the pump makes a hidden boot work and the
-nudge was cutting it short; the next cold run sat hidden for **ninety seconds
-with no loading screen at all** and got there five seconds after the nudge
-finally showed the tab, while a warm client had booted hidden in 10.9 s the run
-before. The pump carries a warm boot; a cold one still wants the tab in front,
-and 25 s is the number that fits both.
+The nudge is the fallback for the replay run. It tests **ticks** rather than
+whether a tab picked the job up — `started` is written a second after the tab
+opens, so testing that would suppress the nudge by the very state it is meant to
+catch — and it waits the same 25 s as the render run. That number is measured:
+a cold run sat hidden for **ninety seconds with no loading screen at all** and
+got there five seconds after the nudge finally showed the tab, while a warm
+client booted hidden in 10.9 s. The pump carries a warm boot. A cold one wants
+the tab in front, and 25 s is the number that fits both.
 
 **A run that dies is written off.** The thing that writes *finished* is the tab
 doing the run, so a tab that crashes leaves the button reading `re-running… 99%`
-for ever and the match impossible to ask for again. A run now says it is alive
+for ever and the match impossible to ask for again. So a run says it is alive
 every 700 ms while playing and every three seconds while waiting for the client,
 and the options page writes off one that has said nothing for `STALL_MS` — the
-same rule a render run has always had. Two things keep it from getting that far:
+same rule a render run follows. Two things keep it from getting that far:
 the run stops itself if the match has not advanced a tick in 20 seconds, and on
 memory — **measured from where the run started, not from zero**.
 
-That distinction was bought the hard way. The same 9-minute match killed its tab
-twice in a row, the second time reporting **1146 MB of heap** on its last write,
-and it died at the same *tick* both times rather than after the same number of
-seconds — with the client drawing the first time and not drawing the second. So
-the growth is per tick and in the game's own logic. But an absolute stop set from
-those numbers then killed a run **at tick 921 of 32 130**, because a cold client
-boot had already reported 1087 MB before a turn was played, and most of a boot's
-heap is garbage nobody has collected yet. A boot's cost says nothing about
-whether a match can be played.
+That distinction was bought the hard way. The same 9-minute match killed its
+tab twice in a row, the second time reporting **1146 MB of heap** on its last
+write. It died at the same *tick* both times rather than after the same number
+of seconds, with the client drawing the first time and not drawing the second.
+So the growth is per tick and in the game's own logic. But an absolute stop set
+from those numbers then killed a run **at tick 921 of 32 130**, because a cold
+client boot had already reported 1087 MB before a turn was played, and most of
+a boot's heap is garbage nobody has collected yet. A boot's cost says nothing
+about whether a match can be played.
 
 So a run takes a baseline when the match comes up — and says what it was — then
 stops if it grows **600 MB** on top of it, or passes 1800 MB outright. Above
@@ -2024,16 +2165,16 @@ it (`node scripts/read-storage.mjs sim`).
 
 **And a run saves as it goes.** The harvest is handed over to be stored every
 1.5 seconds — every half second through the last tenth of the match — under the
-same match id a finished one uses. That is what a *checkpoint* is: the same rows,
-minus what the match had not reached yet. It exists because the measurement above
-found the deaths clustered in the **last 800 ticks of a 32 130-tick match**,
-while the heap over the whole match before that grew 6 MB per thousand ticks — a
-tab dying there used to take a report that was 97% written with it. A report
-drawn from a checkpoint says what it covers (`re-run covers 97% of the match`)
-rather than passing for a finished run.
+same match id a finished one uses. That is what a *checkpoint* is: the same
+rows, minus what the match had not reached yet. It exists because the
+measurement above found the deaths clustered in the **last 800 ticks of a 32
+130-tick match**, while the heap over the whole match before that grew 6 MB per
+thousand ticks. A tab dying there would take a report that was 97% written with
+it. A report drawn from a checkpoint says what it covers (`re-run covers 97% of
+the match`) rather than passing for a finished run.
 
 **And the tab doing the harvest draws nothing of ours.** The preview and the
-full-size render are for a human looking at a loading screen; in a run's tab they
+full-size render are for a human looking at a loading screen. In a run's tab they
 are tens of megabytes decoded into the one place that cannot spare them, so
 `src/companion.js` skips both while `__cdcSim.busy()`.
 
@@ -2046,9 +2187,9 @@ A match has two, and they are not the same number:
 | **real time** | the tick divided by the rate the match was *played* at (`report.ticksPerSecond`, 60 on the ladder) — the wall clock, and what the ladder's own `duration` says. A ranked match of 32 130 ticks is 8:55, and the API reports 8 minutes. |
 | **the game clock** | the same ticks at `GameSpeed.BASE_TICKS_PER_SECOND` — **15 a second, whatever speed the game runs at** — which is the clock the client draws in the corner while you watch. The same match reads **35:42** there. |
 
-The report has always printed real time, and the game clock is the one a player
+Real time is the report's own reading, and the game clock is the one a player
 remembers a moment by: a run whose tab died showed *35:30* on screen while the
-report called the same moment 8:51, and nothing tied the two together. So a
+report called the same moment 8:51, with nothing tying the two together. So a
 report offers **real time**, **game clock**, or **both** — printed `8:55
 (35:42)`. The choice is kept: the options page in extension storage, the site in
 `localStorage`. A match played at 15 ticks a second has one clock and is offered
@@ -2064,13 +2205,14 @@ else.
 
 The companion site (`site/`) has a **Replays** page that reads both: a `.rpl`
 dropped on it, or a report exported here. It runs *these* files —
-`src/replay.js`, `src/replay-view.js` and `src/replay-view.css` are vendored into
-the site's assets at build time, the way `src/glyphs.js` already was — so a
-report drawn there cannot differ from the one drawn here. The object table and
-the cameo sheet cannot be vendored, having no copy in `src/`: `site/export.mjs`
-writes them into the site's assets straight out of the extension's harvest, and
-refuses to build a site from a store that never got one. `src/replay-view.js` is where the renderer lives now; the options
-page keeps only the panel around it.
+`src/replay.js`, `src/replay-view.js` and `src/replay-view.css` are vendored
+into the site's assets at build time, the way `src/glyphs.js` already was — so
+a report drawn there cannot differ from the one drawn here. The object table
+and the cameo sheet cannot be vendored, having no copy in `src/`:
+`site/export.mjs` writes them into the site's assets straight out of the
+extension's harvest, and refuses to build a site from a store that never got
+one. `src/replay-view.js` is where the renderer lives now. The options page
+keeps only the panel around it.
 
 What the site cannot do, and why:
 
@@ -2082,13 +2224,14 @@ What the site cannot do, and why:
 | read a report somebody else re-ran | yes | yes, via the exported file |
 
 Names come from the harvested object table: a replay names an object by its
-**ordinal** in the rules type lists, nothing served over the network states those
-lists, and the client that recorded the replay is the one that can. `node
+**ordinal** in the rules type lists, nothing served over the network states
+those lists, and the client that recorded the replay is the one that can. `node
 scripts/check-replay.mjs` decodes a committed fixture against the table in
 `scripts/fixtures/` and asserts the whole match — tiles included — because a
-shape test would pass with every id off by one. The format itself — byte layout, enums and the tick rate — was read out of
-the client's own `network/gameopt/Parser` and verified against eight ladder
-replays; `src/replay.js` carries it.
+shape test would pass with every id off by one. The format itself — byte
+layout, enums and the tick rate — was read out of the client's own
+`network/gameopt/Parser` and verified against eight ladder replays.
+`src/replay.js` carries it.
 
 ### Sprite offsets
 
@@ -2202,10 +2345,160 @@ client does recognise still lands. Anything that is not one of the two hotkey
 file names, or is a `_r_*` key outside the list above, is refused outright: a
 file picker will hand over anything at all.
 
+## Why an extension and not a CD mod
+
+The official [mod SDK](https://github.com/chronodivide/mod-sdk) covers `rules.ini`,
+`art.ini`, maps, the splash PNG and the menu video. It explicitly **cannot**
+change UI/HTML/CSS and cannot ship scripts. Everything here is UI, so it lives
+browser-side.
+
+This is an unofficial, client-only extension. Most of it is an overlay: it
+renders extra information from state the client already holds, and adds nothing
+to what the client sends.
+
+**Build hotkeys and chords are the exception, and they are worth stating
+plainly.** A bound key pushes a queue order into the client's own action queue
+— the same order, serialised the same way, that clicking the cameo sends. So
+the extension does reach gameplay at that one point: it gives the sidebar a
+keyboard, which RA2 and Chrono Divide never had. A chord is the same press
+reached through two keys instead of one, and Shift on a unit is the client's
+own five — the quantity a shift-click has always sent. It does not decide what
+to build, place anything, read anything the game hides from you, or act while
+you are not pressing a key. What that is worth on a ladder whose
+[rules](https://chronodivide.com/ladder-rules.html) ban "any kind of cheats"
+without naming third-party tools either way is a judgement the person
+installing it makes. The extension states what it does rather than deciding for
+them.
+
+## How it hooks in
+
+The CD client is a React DOM UI on top of a three.js canvas, loaded through
+SystemJS with **named internal modules** (`gui/screen/game/loadingScreen/LoadingScreen`,
+`game/map/MapFile`, …). Two consequences:
+
+1. The loading screen is real DOM (`.loading-screen`, `.player-status`,
+   `.player-country-icon`, `.map-name`) — injectable and observable.
+2. `System.import("<module name>")` reaches the client's own classes, so the
+   extension reuses the client's decoders instead of reimplementing them.
+
+Both require page-world access, so the content script is declared
+`"world": "MAIN"`. Everything the extension knows about the client's internals
+was read out of its own bundle at v0.83.3, and the module names and call shapes
+are quoted in the source files that use them.
+
+## Install (development)
+
+1. `chrome://extensions` → enable **Developer mode**.
+2. **Load unpacked** → select this repo's root (or `dist/<name>-<version>/`,
+   which is what the stores get — see **Packaging for the stores**).
+3. Open <https://game.chronodivide.com/> and start a game.
+
+## Packaging for the stores
+
+```
+node scripts/gen-icon.mjs     # icons/icon-{16,32,48,128}.png + store/logo-300.png
+node scripts/pack.mjs         # dist/<name>-<version>/ + dist/<name>-<version>.zip
+```
+
+Upload the zip. `dist/<name>-<version>/` is the same file list unpacked, so
+**Load unpacked** on it tests exactly what the store gets rather than what the
+repo happens to contain.
+
+**The package is an allowlist** — `manifest.json`, `src/`, `icons/`, nothing
+else. The extension's root is the repository's root, so a `zip -r .` here would
+ship the whole working repository — notes, records, generator inputs, everything
+that is not the extension — into a public listing. That is a disclosure rather
+than a size problem, and no `.gitignore` rule catches it because those files are
+tracked on purpose.
+
+Three guards fail the build rather than warn:
+
+| guard | what it catches |
+|---|---|
+| manifest sweep | a path the manifest names that is not in the package — `load unpacked` substitutes a placeholder icon, the store rejects the upload |
+| link sweep | a `src`/`href` on the options page that does not resolve, or that is absolute |
+| leak sweep | a Windows user directory, `AppData`, the operator's user name, an email, an extension id, a `Program Files` path — the same list the site build sweeps its own output for |
+
+`--dry` runs all three and writes nothing. `--force` overwrites a build of a
+version already packaged, which is otherwise refused because neither store lets
+a version be re-uploaded.
+
+### The version
+
+`manifest.json` carries it and nothing else does. **A feature is a minor, a fix
+with no visible change is a patch**, and every feature bumps in its own commit —
+the version is the only build identity there is, and `src/companion.js` prints
+it in the in-game load line precisely so *did my reload take?* has an answer.
+
+The icon is one SVG in `scripts/gen-icon.mjs`, rendered at each size rather than
+drawn large and downscaled — a 2px stroke downscaled to 16px is grey fog.
+`--check` re-renders to a temp directory and diffs, so a committed PNG that no
+longer matches the shape is a failure rather than a surprise.
+
+**Still owed to the listings, and not automatable here:** screenshots, the
+per-permission justifications, the single-purpose statement, and the data-usage
+disclosure (the extension stores everything in `chrome.storage.local` and
+transmits nothing, but the form is mandatory either way).
+
+## Diagnosing it
+
+`__cdc.probe()` in the game tab's console (page context) is the first thing to
+run: it re-checks every assumption this extension makes about the client and
+prints which ones still hold, as a table. `__cdc.build()` answers the same
+question for a build hotkey — which binding a press resolves to, and whether the
+client had a command on that key — and `__cdc.chords()` for a chord, including
+which prefixes resolved and from whose table.
+
+The first line of every diagnosis is the **version**: `__cdc.version` against
+`manifest.json`. If they differ, the extension did not reload and nothing else
+you see is current. `chrome://extensions` → the reload arrow on the card.
+
+If the map preview is missing, the loading screen says so in the preview's own
+slot instead of showing nothing.
+
+### The log, which outlives the tab
+
+A render run happens in a tab the extension opens and closes by itself, so the
+run whose result you are questioning is exactly the run whose narration goes
+with it. The **Log** tab on the options page is that narration kept in storage:
+the last 400 lines, newest at the bottom, filterable, with *Problems only* for
+the warnings and errors alone.
+
+Two sources feed it: the game tab's own narration, and, from the half that owns
+storage, **every write — attempted, then stored or failed.** The attempt is
+logged before the write starts, and that is the whole point. A write that fails
+and a write that is never started look identical afterwards, and one of those
+is what left a map with a render and no card. `scripts/check-log.mjs` is the
+test of both rules, including that the log is handed over *before* the run's
+tab is allowed to close.
+
+The worker owns the key (`background.js`, `appendLog`), because three halves
+write to it and a key with three independent read-modify-write cycles loses
+entries.
+
+### Reading it from a shell
+
+```
+node scripts/read-storage.mjs            # every key in the extension's storage
+node scripts/read-storage.mjs log        # the log, one line per entry
+node scripts/read-storage.mjs pools bulk # any key, as JSON
+```
+
+`chrome.storage.local` is a LevelDB in the browser profile, and that script
+reads it **while the browser is running** — the tables in place, the
+write-ahead log through a copy. It finds the profile itself by looking for an
+unpacked extension loaded from this repo, so there is no id to keep up to date.
+
+This is what makes the log worth having for someone who is not sitting at the
+machine: a question about what the extension did is answered from a terminal,
+with no browser, no devtools and nothing to copy out by hand. It has no
+dependencies — snappy and the sstable format are implemented in the script,
+because this repo has no `package.json` and neither is available to it.
+
 ## Status
 
 Early. Every measured claim in this README gives its number and the date it was
-taken; anything stated without one is a design intention rather than a
+taken. Anything stated without one is a design intention rather than a
 measurement.
 
 ## Not affiliated, and what is whose
@@ -2213,7 +2506,7 @@ measurement.
 This is an unofficial browser extension. It is **not affiliated with, endorsed
 by, or connected to** Chrono Divide or Electronic Arts, and neither has reviewed
 it. *Chrono Divide*, *Command & Conquer*, *Red Alert* and every other name and
-mark here belong to their respective owners; they are used only to say what this
+mark here belong to their respective owners. They are used only to say what this
 works with.
 
 The MIT licence in `LICENSE` covers the code in this repository. **The game's

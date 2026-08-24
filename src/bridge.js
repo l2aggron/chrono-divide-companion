@@ -24,6 +24,16 @@
  *            inside it: `keys` is a flat map of name -> one descriptor, and both
  *            halves of the extension iterate it as one — a nested profile in
  *            there would be read as a hotkey with no `code`.
+ *   commandKeys: [ { command: "Scoreboard", key: {...} }, … ]
+ *            Keys of ours that fire a command of the *client's*. `builds` above
+ *            sends a build order; this sends a press to the client's own
+ *            `KeyboardHandler`. Flat rather than per side, because a client
+ *            command is the same command whatever country you drew.
+ *   commands: { version, at, items: ["CenterBase", …] }
+ *            Which commands the client actually registers, harvested in the
+ *            game tab (companion.js sendCommands) because the options page has
+ *            no client to ask. On the terms of `roster` below: this half is
+ *            what the page *offers*, `commandKeys` is what the user chose.
  *   chords:  { "<side>": { "<section>": { "<slot>": id | [id, id] | null } } }
  *            The user's chord **overrides**, slot index to object, laid over the
  *            layouts src/build-chords.js ships. A slot that is absent follows
@@ -87,7 +97,7 @@
  *   prefs:   { preferHqPreview: bool, autoRender: bool, fullIcons: bool,
  *              captureSample: bool, chordSinglePress: bool, grabTabKeys: bool,
  *              fullscreenOnEnter: bool, menuOffEscape: bool,
- *              sidebarKeys: bool,
+ *              sidebarKeys: bool, chordOnlyBuildable: bool,
  *              recolour: { on: bool, self: name, ally: name,
  *                          enemies: [name, …] },
  *              cardPreferHq: bool, viewerIcons: bool }
@@ -156,6 +166,7 @@
     captureSample: false,
     sidebarKeys: true,
     chordSinglePress: false,
+    chordOnlyBuildable: false,
     grabTabKeys: true,
     fullscreenOnEnter: true,
     menuOffEscape: true,
@@ -167,6 +178,11 @@
     keys: {},
     builds: {},
     chords: {},
+    commandKeys: [],
+    // The offered list stays in storage for the options page. Unlike
+    // `commandKeys` beside it there is nothing in the game tab that wants it
+    // back: the tab reads the live handler, which is where this came from.
+    commands: {},
     roster: {},
     // The stamp, not the sheet — see rememberCameos for why the two are apart.
     // The sheet itself is never in DEFAULTS, so no config push ever loads it.
@@ -365,6 +381,7 @@
           guides: {},
           keys: {},
           builds: {},
+          commandKeys: [],
           chords: {},
           rosterVersion: "",
           cameoVersion: "",
@@ -387,6 +404,9 @@
         guides: data.guides,
         keys: data.keys,
         builds: data.builds,
+        // The bindings travel, the list they were chosen from does not — see
+        // DEFAULTS above.
+        commandKeys: data.commandKeys,
         chords: data.chords,
         // The stamp only, not the roster: the page is where the roster came
         // from and has no use for it back — it sends one when this disagrees
@@ -981,6 +1001,26 @@
   }
 
   /**
+   * The client's own command list, replaced whole.
+   *
+   * Replaced for the reason `rememberColours` above is: it is one client's
+   * answer about one version of itself, and a command an older client
+   * registered that a newer one dropped would sit in the options page offering
+   * a binding that could never fire.
+   */
+  function rememberCommands(commands) {
+    if (!commands || !Array.isArray(commands.items) || !commands.items.length) {
+      console.warn(TAG, "empty command table ignored", commands);
+      return;
+    }
+    write({ commands });
+    logLine(
+      `command table: ${commands.items.length} commands from client ` +
+        `${commands.version || "(unversioned)"}`
+    );
+  }
+
+  /**
    * The harvested cameo sheet, and the stamp that says what drew it.
    *
    * **Two keys for one harvest, deliberately.** `cameos` is the pixels — a
@@ -1083,6 +1123,8 @@
       rememberRoster(data.roster);
     } else if (data.type === "colour-table") {
       rememberColours(data.colours);
+    } else if (data.type === "command-table") {
+      rememberCommands(data.commands);
     } else if (data.type === "cameo-sheet") {
       rememberCameos(data.cameos);
     } else if (data.type === "replay-types") {
