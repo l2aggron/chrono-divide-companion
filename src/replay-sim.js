@@ -20,7 +20,10 @@
  *
  * `window.__cdcSim.run(job, onProgress)` is the whole thing, and it takes no
  * chrome APIs and no DOM, so scripts/check-sim.mjs drives this very file in a
- * browser rather than a copy of it.
+ * browser rather than a copy of it. That file named a check that did not
+ * exist for a fortnight; it does now, and lifts the three functions that
+ * decide what a harvest says — `economy`, `power` and `tempo` — out of this
+ * one to run them against players made up for the purpose.
  */
 (() => {
   "use strict";
@@ -416,6 +419,239 @@
   }
 
   /**
+   * What a side's power was doing at this instant, or null when the client keeps
+   * no such trait.
+   *
+   * Four numbers rather than one flag, because they answer different questions
+   * and the report draws all four ([[cd-power-and-production]] for the engine
+   * side of each):
+   *
+   * - `total` is what the base **produces**, and the client scales each
+   *   building's share by its health — so this falls when a power plant is
+   *   damaged, before it is lost.
+   * - `drain` is what everything else consumes, and is not health-scaled.
+   * - `low` is the client's own verdict rather than `total < drain` recomputed
+   *   here: `PowerTrait#updateLevel` is
+   *   `power >= drain && !blackoutFrames ? Normal : Low`, and a copy of that
+   *   rule would be a second thing to disagree with it.
+   * - `blackout` is the half of the verdict the numbers cannot show. A base
+   *   running a surplus and browned out anyway has had a spy walk into a power
+   *   plant, or an EMP over it; without this the outage band on the report would
+   *   sit over a healthy surplus and read as a bug.
+   *
+   * **Null rather than zeroes.** A client that has moved the trait must read as
+   * "no reading" everywhere downstream — a base with no power and a base nobody
+   * measured are different things, and only one of them is worth drawing.
+   */
+  function power(player) {
+    const trait = player.powerTrait;
+    if (!trait) return null;
+    return {
+      total: trait.power,
+      drain: trait.drain,
+      low: typeof trait.isLowPower === "function" ? trait.isLowPower() : null,
+      blackout:
+        typeof trait.getBlackoutDuration === "function" ? trait.getBlackoutDuration() > 0 : trait.blackoutFrames > 0,
+    };
+  }
+
+  /**
+   * How long the fetch patch below waits for the bridge to say whether there
+   * is a local replay. Generous, because the cost of being wrong in one
+   * direction is a five-second pause in a boot that takes a minute, and in
+   * the other it is a run that silently fetched the wrong thing.
+   */
+  const HANDOVER_MILLIS = 5000;
+
+  /**
+   * Answer the client's own fetch of the replay from a file we were handed.
+   *
+   * **Why this exists.** A re-run boots the client at `#/replay/<url>` and the
+   * client fetches that URL itself, so a `.rpl` off disk whose match the replay
+   * hosts no longer serve had nothing to point a tab at — the report drew, and
+   * the half that needs a simulation (credits, losses, power, tempo, spies) was
+   * out of reach for exactly the replays a person is most likely to have kept a
+   * copy of.
+   *
+   * **What the client does, read off `ra2web.min.js` 0.83.3 on 2026-08-31.** The
+   * route hands it a URL; it checks `new URL(url).hostname` ends with something
+   * in `config.replaysUrlWhitelist` (`.chronodivide.com`) and throws if not; it
+   * then calls `ResourceLoader("").loadBinary(url)`, which goes through
+   * `HttpRequest#fetchRaw`, which calls the **global `fetch`** and refuses a
+   * response that is not `ok` or that answers `text/html`.
+   *
+   * So three things follow, and each is a constraint rather than a choice:
+   *
+   * 1. The URL has to stay on a real replay host, which is why the sentinel is
+   *    the URL the match *would* have had — `<host>/<gameId>.rpl`. Nothing about
+   *    the route or the whitelist is worked around; the bytes simply arrive from
+   *    here instead of from the network.
+   * 2. A real `Response` is handed back, not an object shaped like one:
+   *    `fetchRaw` reads `.body` as a stream for its progress reporting, and a
+   *    stub with an `arrayBuffer()` on it would satisfy the type and stall the
+   *    read.
+   * 3. Only that one URL is answered, and only on a replay route. Everything
+   *    else is the untouched original — this is not a cache and not a proxy.
+   *
+   * **It disarms itself.** One answer, then the patch steps out of the way: a
+   * client that asks twice is a client doing something this was not written for,
+   * and the second ask should reach the network and fail honestly rather than
+   * quietly replaying the first.
+   *
+   * The one thing left to the client: a replay recorded by a different engine
+   * version sends it off to `loadReplayWithOldClient`, whatever the bytes came
+   * from. That is the client's own rule about its own compatibility and is not
+   * ours to defeat.
+   */
+  function answerReplayFetch() {
+    // Never anywhere but a replay route. `run` refuses the same way, and for the
+    // same reason: nothing here may be within reach of a live match.
+    //
+    // `typeof` rather than a bare read, because this runs at load and three of
+    // the node suites evaluate this file outside a document to lift a function
+    // out of it. A page always has a location; where there is none there is no
+    // client to hand anything to either, so the answer is the same.
+    if (typeof location === "undefined" || !/^#\/replay\//.test(location.hash)) return null;
+    const original = window.fetch;
+    if (typeof original !== "function") {
+      say("this page has no fetch to answer — a local replay cannot be handed over", "error");
+      return null;
+    }
+
+    let settle;
+    // What the bridge is about to say: the file's text, or null for "there is
+    // none, get out of the way". Held as a promise because the client's own
+    // fetch and the bridge's message are two arrivals with no order between
+    // them, and the wrong order would otherwise be a silent miss.
+    const handed = new Promise((resolve) => {
+      settle = resolve;
+    });
+    // A backstop, not a mechanism. The bridge posts on every replay route, so
+    // this only fires if the bridge never loaded at all — in which case the
+    // right answer is the network's, not an indefinite wait in front of the
+    // client's boot.
+    const timer = setTimeout(() => settle(null), HANDOVER_MILLIS);
+
+    let spent = false;
+    window.fetch = function (input, init) {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      if (spent || !/^https:\/\/[a-z-]+\.chronodivide\.com\/[0-9a-f-]{36}\.rpl$/i.test(url)) {
+        return original.call(this, input, init);
+      }
+      return handed.then((text) => {
+        if (spent || text === null || text === undefined) return original.call(this, input, init);
+        spent = true;
+        say(`handing the client ${text.length} bytes of replay instead of fetching ${url}`);
+        // Byte per character, not UTF-8. The client reads the bytes back with
+        // `uint8ArrayToBinaryString`, which is `String.fromCharCode` per byte —
+        // so this is that function's exact inverse. A `.rpl` is header lines and
+        // base64 and is ASCII throughout, which makes the two the same thing
+        // today; they stop being the same the moment anything else arrives here,
+        // and the inverse is the one that stays correct.
+        const bytes = new Uint8Array(text.length);
+        for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i) & 0xff;
+        return new Response(bytes, {
+          status: 200,
+          statusText: "OK",
+          // Not text/html, which `fetchRaw` refuses outright, and a length so
+          // the loader's own progress reporting has something to divide by.
+          headers: { "Content-Type": "application/octet-stream", "Content-Length": String(bytes.length) },
+        });
+      });
+    };
+
+    return (text) => {
+      clearTimeout(timer);
+      settle(text || null);
+    };
+  }
+
+  /**
+   * What a spy did when it got in, by the engine's own conditions.
+   *
+   * `AgentTrait#infiltrate` branches on the building's rules and on nothing
+   * else — `rules.radar` resets the victim's shroud unless they hold a spy
+   * satellite, `rules.power > 0` blacks the base out for `spyPowerBlackout`
+   * frames, a superweapon has its timer reset, and `rules.storage > 0` moves
+   * `spyMoneyStealPercent` of the victim's bank across. Read off the object
+   * rather than guessed from its name, which would be a name list to keep in
+   * step with somebody else's ruleset.
+   *
+   * None of the four is an event of its own, so this is the only place any of
+   * them is recorded. The blackout is the exception that half-shows: it turns
+   * up in the power samples as a base browned out on a surplus, which is what
+   * makes the two readings worth putting on one page.
+   *
+   * The shroud reset is reported as it is dispatched, not as it lands: the
+   * client only resets it when the victim holds no spy satellite, and that
+   * check needs their whole building list. What is recorded is that a radar
+   * building was got into, which is the move; whether it cost them the map is
+   * the one thing here left to the reader.
+   */
+  function spyEffects(target) {
+    const rules = (target && target.rules) || {};
+    const effects = [];
+    if (rules.radar) effects.push("radar");
+    if (rules.power > 0) effects.push("blackout");
+    if (target && target.superWeaponTrait) effects.push("superweapon");
+    if (rules.storage > 0) effects.push("money");
+    return effects;
+  }
+
+  /**
+   * How fast this side was building, per queue.
+   *
+   * The engine's build clock is
+   * `baseBuildSpeed * buildSpeedModifier * multipleFactory^-(factories-1)`, and
+   * the two middle factors are the only ones that are properties of the base
+   * rather than of the item in the queue. Both are read off the client instead
+   * of being recomputed:
+   *
+   * - `speed` is `production.buildSpeedModifier`, which is 1 except while the
+   *   base is browned out, and is then a function of how far short of its drain
+   *   it is — a proportional penalty, not a flat halving, so a base one unit
+   *   short is barely slowed.
+   * - `factories` is `production.getFactoryCount()` per queue, which is the
+   *   count `tickQueue` itself reads: maintained by the engine across a building
+   *   appearing, dying, being sold and changing hands, in both directions.
+   *
+   * Counted per **queue** rather than per factory type because that is the
+   * question — a shipyard builds ships and a war factory vehicles, and the
+   * report has a line per queue. `getFactoryTypeForQueueType` is the client's
+   * own mapping and is asked rather than mirrored.
+   *
+   * `queues` is resolved once per run and handed in: it is a pair of the client's
+   * enums, which this file reaches only through a `System.import` that has to
+   * happen inside `play`.
+   */
+  function tempo(player, queues) {
+    const production = player.production;
+    if (!production || typeof production.getFactoryCount !== "function") return null;
+    const factories = {};
+    /**
+     * Which factory each queue's clock reads, kept beside the count.
+     *
+     * **Two queues can share one.** `getFactoryTypeForQueueType` answers
+     * `BuildingType` for both `Structures` and `Armory` — the Defence tab is a
+     * queue of its own, so a player builds a structure and a turret at once,
+     * but both come off the same construction yards. Their coefficients are
+     * therefore the same number at every instant, and a report that drew both
+     * drew one line twice.
+     *
+     * Recorded rather than decided here, because the answer is the client's:
+     * a report that dropped `Armory` by name would keep dropping it if a
+     * client ever gave the Defence tab a factory of its own.
+     */
+    const factoryOf = {};
+    for (const [name, type] of queues) {
+      const factory = production.getFactoryTypeForQueueType(type);
+      factories[name] = production.getFactoryCount(factory) || 0;
+      factoryOf[name] = String(factory);
+    }
+    return { speed: production.buildSpeedModifier, factories, factoryOf };
+  }
+
+  /**
    * One reading of every combatant's counters.
    *
    * The player list is captured once and read from thereafter, never re-asked:
@@ -423,7 +659,7 @@
    * sampling it each time silently drops the loser from the last rows of the
    * match — which is exactly the part a report about losses is read for.
    */
-  function sample(game, roster) {
+  function sample(game, roster, queues) {
     const players = [];
     for (const player of roster) {
       players.push({
@@ -431,6 +667,10 @@
         credits: player.credits,
         gained: player.creditsGained,
         ...economy(player),
+        // Both null on a client that keeps neither, and null rather than a
+        // zeroed shape: a reading nobody could take is not a reading of nothing.
+        power: power(player),
+        tempo: tempo(player, queues),
         built: sum(player.unitsBuiltByType),
         lost: sum(player.unitsLostByType),
         killed: sum(player.unitsKilledByType),
@@ -585,6 +825,69 @@
     });
 
     /**
+     * A spy getting into a building, which nothing else on this page records.
+     *
+     * `BuildingInfiltration` (21) carries both ends itself —
+     * `{ target, source }`, the building and the spy — so unlike a capture it
+     * needs no pairing with an owner change: `BuildingCapture` names only the
+     * building, which is what `captureLedger` above exists for, and this one
+     * does not have that problem.
+     *
+     * It is the only record there is. The file cannot state an infiltration: an
+     * order in a replay names no unit ([[cd-replay-format]]), so the Enter order
+     * that sent the spy in is indistinguishable from every other order in the
+     * match, and what it did when it arrived is a consequence in any case. And
+     * the consequences are individually invisible — a stolen tech is a cameo
+     * that quietly appears, a stolen sight is nothing at all, and a power
+     * blackout looks exactly like a healthy base in a chart of production
+     * against drain.
+     *
+     * Both sides are kept even when one of them is not a player: a spy walking
+     * into a civilian building is not a move against anybody, but a match where
+     * that happened is not a match where nothing happened, and the row costs one
+     * line.
+     */
+    const infiltrations = [];
+    // `spyMoneyStealPercent`, clamped the way the engine clamps it. Read once
+    // rather than per event: it is a ruleset constant, and a match does not
+    // change rulesets halfway.
+    const general = (game.rules && game.rules.general) || {};
+    const stealShare = Math.max(0, Math.min(1, Number(general.spyMoneyStealPercent) || 0));
+    const unsubscribeSpy = game.events.subscribe(EventType.BuildingInfiltration, (event) => {
+      if (infiltrations.length >= MAX_CAPTURES) return;
+      const target = event.target || {};
+      const source = event.source || {};
+      const rules = target.rules || {};
+      const effects = spyEffects(target);
+      const row = {
+        tick: game.currentTick,
+        // The building that was got into, and the side that owned it.
+        name: target.name || rules.name || "",
+        owner: (target.owner && target.owner.name) || "",
+        // The spy, and the side that sent it. Named rather than assumed to be
+        // "the other one": a match can have more than two sides.
+        spy: source.name || (source.rules && source.rules.name) || "",
+        by: (source.owner && source.owner.name) || "",
+        effects,
+        /**
+         * What the victim was left holding, and the share the rules take.
+         *
+         * The event is dispatched **after** `infiltrate` has already moved the
+         * money, so the amount cannot be read as a difference — only the
+         * balance afterwards can. With the share beside it a reader gets the
+         * theft to within a credit: the engine floors, so a bank left holding
+         * `after` was holding either `after / (1 - share)` or one more than
+         * that. Recorded as the two numbers rather than as an answer, so
+         * whoever prints it decides how to say "about".
+         */
+        left: effects.includes("money") && target.owner ? target.owner.credits : null,
+        share: effects.includes("money") ? stealShare : null,
+      };
+      if (!playing.has(row.owner) && !playing.has(row.by)) return;
+      infiltrations.push(row);
+    });
+
+    /**
      * When a building finished and stood waiting for the player to put it down.
      *
      * `PlaceBuildingAction.tryPlaceBuilding` only does anything when the queue is
@@ -602,6 +905,21 @@
      * taken once.
      */
     const { QueueStatus, QueueType } = await window.System.import("game/player/production/ProductionQueue");
+
+    /**
+     * The queues a tempo reading is taken for, resolved once.
+     *
+     * `QueueType` is a numeric enum, so `Object.entries` hands back both
+     * directions of it — `Structures -> 0` and `0 -> Structures` — and only the
+     * forward half is a queue. Taken from the client rather than written down
+     * here so a client that adds a queue is sampled with it, and one that
+     * renames a queue does not quietly report the old name.
+     *
+     * `getFactoryTypeForQueueType` is asked per player inside `tempo`, not
+     * cached here: it lives on the production trait and there is one per side.
+     */
+    const tempoQueues = Object.entries(QueueType).filter(([, type]) => typeof type === "number");
+    if (!tempoQueues.length) say("this client's ProductionQueue exports no QueueType — no tempo will be sampled");
     const ready = [];
     const waiting = new Map();
     const readyListeners = [];
@@ -628,7 +946,7 @@
       say(`${who || "a player"} was defeated at tick ${game.currentTick} — ${heap().mb} MB of heap`);
     });
 
-    const samples = [sample(game, roster)];
+    const samples = [sample(game, roster, tempoQueues)];
     let nextSample = game.currentTick + SAMPLE_TICKS;
     let told = 0;
     let error = "";
@@ -682,7 +1000,7 @@
      * `complete` — the match had not finished when it was taken.
      */
     const build = (why, checkpoint) => {
-      const rows = checkpoint ? samples.concat([sample(game, roster)]) : samples;
+      const rows = checkpoint ? samples.concat([sample(game, roster, tempoQueues)]) : samples;
       const wallMillis = Date.now() - startedAt;
       return {
         gameId: job.gameId || "",
@@ -711,8 +1029,12 @@
         produced,
         ready,
         captures,
+        infiltrations,
         truncated:
-          destroyed.length >= MAX_DESTROYED || produced.length >= MAX_PRODUCED || captures.length >= MAX_CAPTURES,
+          destroyed.length >= MAX_DESTROYED ||
+          produced.length >= MAX_PRODUCED ||
+          captures.length >= MAX_CAPTURES ||
+          infiltrations.length >= MAX_CAPTURES,
       };
     };
 
@@ -736,7 +1058,7 @@
         while (performance.now() < chunkUntil) {
           mgr.doGameTurn(performance.now());
           if (game.currentTick >= nextSample) {
-            samples.push(sample(game, roster));
+            samples.push(sample(game, roster, tempoQueues));
             nextSample = game.currentTick + SAMPLE_TICKS;
           }
           if (game.status === state.GameStatus.Ended || game.currentTick > endTick) break;
@@ -827,10 +1149,11 @@
     unsubscribeSpawn();
     unsubscribeOwner();
     unsubscribeCapture();
+    unsubscribeSpy();
     // `EventDispatcher` has no unsubscriber to call — it takes the listener back.
     for (const [production, listener] of readyListeners) production.onQueueUpdate.unsubscribe(listener);
 
-    samples.push(sample(game, roster));
+    samples.push(sample(game, roster, tempoQueues));
     const result = build(error, false);
     say(
       `${result.complete ? "finished" : "stopped"} at tick ${result.tick}/${endTick} in ${(result.wallMillis / 1000).toFixed(1)}s ` +
@@ -862,9 +1185,26 @@
 
   let running = false;
 
+  /**
+   * Armed at load, before anything can be handed over.
+   *
+   * This file is listed ahead of src/bridge.js in the manifest, so the patch is
+   * in place before the bridge exists to post to it — and long before the client
+   * has loaded its mixes and got as far as asking for a replay. Null off a
+   * replay route, which is every page but the one this is for.
+   */
+  const handOver = answerReplayFetch();
+
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
     const data = event.data;
+    if (data && data.source === "cdc-bridge" && data.type === "sim-local") {
+      // The bridge speaking for the storage: either the text of a replay the
+      // hosts do not serve, or null for "there is none". Both answers matter —
+      // the null is what lets the patch step aside promptly.
+      if (handOver) handOver(data.text || null);
+      return;
+    }
     if (!data || data.source !== "cdc-bridge" || data.type !== "sim-run") return;
     if (running) return;
     running = true;

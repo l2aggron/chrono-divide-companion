@@ -61,17 +61,22 @@ One line, and both stores cut it short — Chrome at 132 characters. This is 98:
 > • Your own per-map notes, shown when that map comes up
 >
 > **During it**
+> • A radar of our own — terrain, ore, units, tech buildings and the camera's rectangle as separate layers, all of it behind your own shroud, with clicks that order and move the camera the way the native one does
 > • Build hotkeys — one press queues one of something; placement stays yours
 > • Build chords — a sidebar tab opens as a grid of cameos under the cursor, laid out like the keys themselves, showing only what you can actually order and what each queue is holding
 > • Queue-next and cancel keys, including the game's own Ctrl+click order, which the game gives no key to
 > • Superweapon keys — once you own one, its building's key aims it
 > • A production panel showing all six queues at once, including the ones the sidebar cannot draw
+> • Taunts on a key — the game's eight as a grid under the cursor, editable per country, and the settings page plays them back
+> • Any mouse button from the third one up binds wherever a key does, build orders included
+> • The sidebar collapses to its power bar, and the view widens into the strip it frees
 > • The pause menu moved off Escape, so Abort Mission stops being one reflex away
 > • Player colours you choose, applied to units, buildings, radar and health bars
 > • Net and memory readouts — ping, order round-trip, frame rate, and what the tab is holding, which no browser reports to a page
 >
 > **After it**
-> • Read a ladder replay as a build order — both players on one clock, with production, losses and APM
+> • Read a replay as a build order — off your own ladder history or from a file on disk — with both players on one clock, and production, losses and APM charted under it
+> • Or re-run it, and the report adds what a replay file does not hold: power and the brownouts under it, how fast each queue was building and off how many factories, and what each infiltration took
 >
 > Every key is rebindable, and every panel can be moved and resized.
 >

@@ -3,6 +3,7 @@
  *
  *   node scripts/drive-memory.mjs            headless
  *   node scripts/drive-memory.mjs --headed   watch it happen
+ *   node scripts/drive-memory.mjs --require  absent playwright is a failure, not a skip
  *
  * **Why this tier exists.** `scripts/check-*.mjs` prove logic without a browser
  * and are the right shape for algebra — but nothing in that tier can say whether
@@ -61,6 +62,22 @@ import { tmpdir } from "node:os";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 const headed = process.argv.includes("--headed");
+
+/**
+ * Make an absent Playwright a failure rather than a polite nothing.
+ *
+ * Without this the missing-driver path below prints SKIP and returns 0, so
+ * "this tier did not run" is indistinguishable from "this tier passed" to
+ * anything that tests an exit code -- a gate, an integration step, an
+ * autonomous run. One `npm rm -g playwright` and the only browser check in the
+ * repo becomes a no-op that reports success, which is worse than not having it:
+ * the align-panel stub called that out as the fragile half of resolving a
+ * global install, before this file existed to demonstrate it.
+ *
+ * So the default stays quiet, because check-*.mjs must keep running anywhere,
+ * and the caller that actually depends on this tier asks for --require.
+ */
+const required = process.argv.includes("--require");
 
 const ORIGIN = "https://game.chronodivide.com/";
 
@@ -151,9 +168,10 @@ async function allocate(page) {
 async function main() {
   const playwright = loadPlaywright();
   if (!playwright) {
-    console.log("SKIP: playwright is not installed globally — this tier did not run.");
+    const how = required ? "FAIL" : "SKIP";
+    console.log(`${how}: playwright is not installed globally — this tier did not run.`);
     console.log("      npm i -g playwright && npx playwright install chromium");
-    return 0;
+    return required ? 1 : 0;
   }
 
   // One profile, three browsers on it in turn.
@@ -343,5 +361,19 @@ async function runPanelChecks(context) {
 }
 
 const code = await main();
-console.log(failed ? `\n${failed} FAILED of ${ran}` : `\n${ran} checks, all good`);
+
+// The summary has to agree with the exit code. Reading `failed` alone, it
+// announced "0 checks, all good" while exiting 1 on --require, and called a
+// skip that asserted nothing good as well. A run that did nothing is exactly
+// what this tier's EXPECTED tripwire exists to catch, so the last line the run
+// prints may not be the thing that hides it.
+console.log(
+  failed
+    ? `\n${failed} FAILED of ${ran}`
+    : code
+      ? `\nthe run did not succeed, having asserted ${ran} — see above`
+      : ran
+        ? `\n${ran} checks, all good`
+        : `\nnothing ran`,
+);
 process.exit(code);

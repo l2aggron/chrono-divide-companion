@@ -443,6 +443,38 @@
   }
 
   /**
+   * What the render should *look* like — ore and gem colours, and a
+   * brightness/contrast pair per element type.
+   *
+   * Arrives the same way `userFix` does, through companion.js, and for the same
+   * reason: this half has no wire to storage. The shape, the defaults and the
+   * clamps all belong to src/render-tune.js, which is the one copy the options
+   * page, the in-game panel, the radar and this file all read — so nothing here
+   * validates it beyond refusing a non-object.
+   *
+   * Stored renders are not invalidated by an edit here either, on exactly the
+   * argument above `userFix`: RENDERER_VERSION stamps a build, not a value the
+   * user dials. Staleness is `__cdcTune.tuneKey`, which is a different stamp
+   * for a different question.
+   */
+  let userLook = {};
+
+  function setLook(look) {
+    userLook = look && typeof look === "object" ? look : {};
+  }
+
+  /**
+   * The appearance table in force, normalised.
+   *
+   * Goes through render-tune rather than being read raw so that a half-written
+   * table cannot reach a fillStyle or a palette: a missing contrast read as 0
+   * is a grey rectangle, and it would surface here, a long way from whatever
+   * wrote it.
+   */
+  const effectiveLook = () =>
+    window.__cdcTune ? window.__cdcTune.normalise(userLook) : null;
+
+  /**
    * Exceptions to the type above, by object name — for the objects that turn out
    * not to follow their own type. Measured the same way and just as suspect:
    * anything landing here is a statement that one object is placed differently
@@ -470,6 +502,21 @@
 
   /** Which ore class an overlay id belongs to, if any. */
   const oreClassFor = (id) => ORE_CLASSES.find((c) => id >= c.min && id <= c.max);
+
+  /**
+   * Which kind of ore an overlay id is, or null for anything that is not ore.
+   *
+   * Exported because the in-game radar reads the ore **live** rather than out of
+   * the map file: a field mined flat by hour two is not the field the map
+   * shipped with. The client's own live overlay carries `overlayId` in this same
+   * id space -- `Overlay#isTiberium` is itself a lookup on it -- so the ranges
+   * above classify a running match exactly as they classify a stored map, and
+   * there is no second table to drift.
+   */
+  function oreKindFor(id) {
+    const cls = oreClassFor(id);
+    return cls ? cls.kind : null;
+  }
 
   /** Whether a terrain object is an ore drill rather than scenery. */
   function spawnsOre(ctx3, name) {
@@ -803,11 +850,22 @@
     ctx.stroke();
   }
 
-  function lutFor(ctx3, palette) {
-    let lut = ctx3.luts.get(palette.hash);
+  function lutFor(ctx3, palette, lookType) {
+    // Keyed by element type as well as palette, because the same palette is
+    // drawn under different dials -- a wall and a tree can share one and still
+    // want different brightness. Cheap: an object's type is a function of the
+    // object, so one render never draws the same sprite under two types.
+    const key = lookType ? palette.hash + "|" + lookType : palette.hash;
+    let lut = ctx3.luts.get(key);
     if (!lut) {
       lut = paletteLut(palette);
-      ctx3.luts.set(palette.hash, lut);
+      // 256 entries, once per palette per type. Doing it here rather than over
+      // the pixels is the whole reason the dials are affordable: the art is
+      // indexed, so tuning the palette tunes every pixel drawn from it.
+      if (ctx3.look && lookType && window.__cdcTune) {
+        lut = window.__cdcTune.tuneLut(lut, ctx3.look, lookType);
+      }
+      ctx3.luts.set(key, lut);
     }
     return lut;
   }
@@ -818,7 +876,7 @@
    * client is running. Art is not: a map may override art sections for its own
    * objects, and Art reads those out of the map file it is handed.
    */
-  async function buildContext(mapFile) {
+  async function buildContext(mapFile, opts = {}) {
     const mods = await imports();
     const { Engine, Rules, Art, ImageFinder } = mods;
     const theater = await theaterFor(Engine, mapFile.theaterType);
@@ -829,7 +887,16 @@
       rules: state.rules,
       art: new Art(state.rules, Engine.getArt(), mapFile),
       imageFinder: new ImageFinder(Engine.getImages(), theater),
-      luts: new Map(), // palette hash -> Uint32Array
+      // Read once per render, not per sprite: a dial that moved halfway
+      // through would produce a picture drawn under two different tables.
+      //
+      // `look: false` renders untuned on purpose, and the radar is why. It keeps
+      // the layers apart and applies the very same dials with `ctx.filter` at
+      // composite time, which is what lets a slider move without a re-render --
+      // so baking them here as well would apply each one twice, exactly the way
+      // the global pair used to be applied twice.
+      look: opts.look === false ? null : effectiveLook(),
+      luts: new Map(), // palette hash | element type -> Uint32Array
       sprites: new Map(), // shp|frame|palette -> canvas
       remapPalettes: new Map(), // source palette + remap colour -> Palette
     };
@@ -871,15 +938,15 @@
   }
 
   /** One SHP frame -> a canvas, with the frame's place inside the SHP's own canvas. */
-  function shpSprite(ctx3, shp, frameNo, palette) {
+  function shpSprite(ctx3, shp, frameNo, palette, lookType) {
     const frame = Math.max(0, Math.min(frameNo | 0, shp.numImages - 1));
-    const key = `${shp.filename}|${frame}|${palette.hash}`;
+    const key = `${shp.filename}|${frame}|${palette.hash}|${lookType || ""}`;
     let sprite = ctx3.sprites.get(key);
     if (!sprite) {
       const image = shp.getImage(frame);
       if (!image || !image.width || !image.height) return null;
       sprite = {
-        canvas: canvasFromIndexed(image.imageData, image.width, image.height, lutFor(ctx3, palette)),
+        canvas: canvasFromIndexed(image.imageData, image.width, image.height, lutFor(ctx3, palette, lookType)),
         x: image.x,
         y: image.y,
         // The SHP's virtual canvas — what the frame's x/y are relative to.
@@ -895,7 +962,7 @@
    * is missing — a map may name an object this client does not have, and most
    * of a render beats an exception.
    */
-  function spriteForObject(ctx3, name, type, frameNo, remap) {
+  function spriteForObject(ctx3, name, type, frameNo, remap, lookType) {
     let objectArt;
     try {
       objectArt = ctx3.art.getObject(name, type);
@@ -906,7 +973,7 @@
     const shp = ctx3.imageFinder.tryFind(objectArt.imageName, objectArt.useTheaterExtension);
     if (!shp || !shp.numImages) return null;
     const palette = paletteForArt(ctx3, objectArt, type, remap);
-    const sprite = shpSprite(ctx3, shp, frameNo || 0, palette);
+    const sprite = shpSprite(ctx3, shp, frameNo || 0, palette, lookType);
     if (!sprite) return null;
     const offset = objectArt.getDrawOffset ? objectArt.getDrawOffset() : { x: 0, y: 0 };
     return { sprite, offset, objectArt, palette };
@@ -929,7 +996,11 @@
    * BuildingRenderable#createAnimObject adds them.
    */
   function buildingSprites(ctx3, name, remap) {
-    const main = spriteForObject(ctx3, name, ctx3.ObjectType.Building, 0, remap);
+    // An airport has its own offset dial, so it gets its own appearance dial
+    // too: the same split, kept in one place, so a type never means one thing
+    // to the offsets editor and another to the colour table.
+    const lookType = ALIGN_LAYER_BY_NAME[name] === "airport" ? "airport" : "building";
+    const main = spriteForObject(ctx3, name, ctx3.ObjectType.Building, 0, remap, lookType);
     if (!main) return null;
     const parts = [main];
     const section = main.objectArt.art;
@@ -950,7 +1021,7 @@
         const shp = ctx3.imageFinder.tryFind(animArt.imageName, main.objectArt.useTheaterExtension);
         if (!shp || !shp.numImages) continue;
         const start = animArt.art ? animArt.art.getNumber("Start", 0) : 0;
-        const sprite = shpSprite(ctx3, shp, start, main.palette);
+        const sprite = shpSprite(ctx3, shp, start, main.palette, lookType);
         if (!sprite) continue;
         parts.push({
           sprite,
@@ -1064,6 +1135,209 @@
    * the sprites by a formula derived from it, so when a sprite looks off the
    * grid says which of the two moved.
    */
+  /**
+   * Everything needed to put a tile on a picture of this map, without rendering
+   * one.
+   *
+   * The in-game radar draws its own canvas over its own copy of the render and
+   * has to place units, a viewport rectangle and a click on it. That is the
+   * same arithmetic `result.icons` already does internally (world -> fraction
+   * of the output picture), and the whole reason this is exported rather than
+   * copied into companion.js is that a second copy of `cropRect` is exactly the
+   * drift that once silently killed every build hotkey: two hand-kept lists of
+   * one truth.
+   *
+   * Fractions rather than pixels, for the same reason `icons` uses them — the
+   * radar panel is resizable and its source may be the 3000px render or a
+   * downscale of it, so a pixel figured here would be a pixel of the wrong
+   * picture.
+   *
+   * Pure: a mapFile in, numbers out. No theater, no client modules, no canvas,
+   * which is what lets scripts/check-radar.mjs exercise it against a synthetic
+   * map in a `vm`.
+   *
+   * @param {object} mapFile
+   * @returns {{view, headroom, cropWidth, cropHeight, canvasWidth, canvasHeight,
+   *   mapWidth, mapHeight, block, cellAt, fractionOf}}
+   */
+  function geometry(mapFile) {
+    const view = cropRect(mapFile);
+    const headroom = HEADROOM_LEVELS * (BLOCK.height / 2);
+    const full = mapFile.fullSize;
+    const mapWidth = full.width;
+    // The master canvas the render draws onto, from render()'s own sizing.
+    const canvasWidth = 2 * full.width * (BLOCK.width / 2) + BLOCK.width;
+    const canvasHeight = 2 * full.height * (BLOCK.height / 2) + 2 * headroom;
+    // What cropScale actually keeps, which is what the output picture shows.
+    const cropWidth = Math.min(view.width, canvasWidth);
+    const cropHeight = Math.min(view.height + headroom, canvasHeight);
+
+    /** A cell's top-left in render pixels, headroom included. */
+    const cellAt = (rx, ry, z) => {
+      const cell = cellOrigin(rx, ry, z || 0, mapWidth);
+      return { x: cell.x, y: cell.y + headroom, dx: cell.dx, dy: cell.dy };
+    };
+
+    // --- addressing a cell by a single number ---------------------------------
+    //
+    // **Neither `rx` nor `ry` is bounded by the map's width or height.** The
+    // domain is the diamond this render draws, not a `width x height`
+    // rectangle: on a 100x100 map `rx` reaches 200 and `ry` reaches 199, and
+    // there are 20000 cells rather than 10000. The obvious packing,
+    // `ry * mapWidth + rx`, is therefore wrong twice over — measured on that
+    // map, 5000 of the 20000 cells collide with another cell's id, and 10200
+    // land outside any `mapWidth * mapHeight` array.
+    //
+    // Both failures shipped in 1.10.0 and were visible in one screenshot: the
+    // collisions drew the explored region again at two other places on the
+    // radar, and the overflow left the rest black, because a write past a
+    // Uint8Array's end is dropped in silence and the read back is `undefined`.
+    //
+    // Exported as one function rather than written out at each call site for
+    // the reason `cropRect` is: the pick buffer, the shroud mask and the click
+    // decode must not each invent their own, and this is the third place that
+    // rule has had to be enforced.
+    //
+    // The bound is provable rather than generous. `dx = rx - ry + W - 1` and
+    // `dy = rx + ry - W - 1` span the canvas the render sizes, so
+    // `dx <= 2W` and `dy <= 2H`; inverting, `rx = (dx + dy)/2 + 1 <= W + H + 1`
+    // and `ry = (dy - dx)/2 + W <= W + H`, and both are >= 0.
+    const idStride = mapWidth + full.height + 2;
+    const cellId = (rx, ry) => ry * idStride + rx;
+    const cellOf = (id) => ({ rx: id % idStride, ry: Math.floor(id / idStride) });
+
+    /** A cell's centre as a fraction of the output picture. */
+    const fractionOf = (rx, ry, z) => {
+      const cell = cellAt(rx, ry, z);
+      return {
+        x: (cell.x + BLOCK.width / 2 - view.x) / cropWidth,
+        y: (cell.y + BLOCK.height / 2 - view.y) / cropHeight,
+      };
+    };
+
+    return {
+      view,
+      headroom,
+      cropWidth,
+      cropHeight,
+      canvasWidth,
+      canvasHeight,
+      mapWidth,
+      mapHeight: full.height,
+      idStride,
+      cellIds: idStride * idStride,
+      block: { ...BLOCK },
+      cellAt,
+      cellId,
+      cellOf,
+      fractionOf,
+    };
+  }
+
+  /**
+   * Half-width of a cell's diamond at depth `dy`, after the diamond has been
+   * swept downward by `lift`.
+   *
+   * The sweep is what draws a cliff face. Elevation lifts a cell up the picture
+   * and leaves a band of unclaimed pixels where it used to sit -- exactly the
+   * face the tile's own sprite draws down there -- so a cell claims the whole
+   * region its diamond passes through on the way up, not just where it landed.
+   * Without it every cliff in the map reads as no cell at all.
+   *
+   * The diamond's profile is unimodal, widest at its middle, so the widest
+   * point of a downward window [dy - lift, dy] is the middle when the window
+   * spans it and the nearer end otherwise. Negative means the window misses the
+   * diamond entirely.
+   */
+  function sweptHalfWidth(dy, cellWidth, cellHeight, lift) {
+    const lo = dy - lift;
+    if (dy < 0 || lo > cellHeight) return -1;
+    const mid = cellHeight / 2;
+    if (lo <= mid && dy >= mid) return cellWidth / 2;
+    const at = dy < mid ? dy : lo;
+    return (cellWidth / 2) * (1 - Math.abs((2 * at) / cellHeight - 1));
+  }
+
+  /**
+   * Which cell every pixel of a picture of this map belongs to.
+   *
+   * The radar has to answer "what did I just click on", and the inverse of
+   * `cellOrigin` is **ambiguous**: the elevation term lifts a cell up the
+   * picture, so one pixel can belong to two cells at different heights and the
+   * flat inverse reads a z=4 cell two tiles off (scripts/check-radar.mjs pins
+   * that). So the answer is rasterised rather than derived -- once per panel
+   * size, from the same geometry the picture is drawn from, which is what makes
+   * it unable to drift from it.
+   *
+   * Rasterised here rather than on a canvas, into a plain array, for three
+   * reasons: a canvas fill is antialiased and a blended id is a *different*
+   * cell; `getImageData` on a GPU-backed canvas is a readback stall; and this
+   * way the whole thing is exercisable in node against a synthetic map, which
+   * a canvas would put out of reach.
+   *
+   * Painter order is the render's own -- `dy` then `dx` -- so where two cells
+   * overlap, the one that is drawn on top is the one that answers. That is the
+   * whole promise: the tile you get is the tile you were looking at.
+   *
+   * @param {object} mapFile
+   * @param {number} width   the picture's width in pixels
+   * @param {number} height  its height
+   * @param {Array} [tiles]  cells as {rx, ry, z}; defaults to the map's own.
+   *   The render prefers GameMap's smoothed tiles, but smoothing rewrites which
+   *   sprite a cell draws and never where the cell is, so the raw ones place
+   *   identically and cost no theater.
+   * @returns {{width, height, mapWidth, idStride, ids: Int32Array}}
+   *   `ids[y * width + x]` is `geometry(mapFile).cellId(rx, ry)`, or -1 where no
+   *   cell covers that pixel. Decode it with that geometry's `cellOf` — the
+   *   stride is NOT `mapWidth`, see the note beside `cellId`.
+   */
+  function pickBuffer(mapFile, width, height, tiles) {
+    const w = Math.max(1, Math.round(width));
+    const h = Math.max(1, Math.round(height));
+    const geo = geometry(mapFile);
+    const source =
+      tiles || (mapFile.tiles ? Array.prototype.filter.call(mapFile.tiles, Boolean) : []);
+    const ids = new Int32Array(w * h).fill(-1);
+    const sx = w / geo.cropWidth;
+    const sy = h / geo.cropHeight;
+    const cellWidth = BLOCK.width * sx;
+    const cellHeight = BLOCK.height * sy;
+
+    const ordered = source
+      .map((tile) => {
+        const at = geo.cellAt(tile.rx, tile.ry, tile.z || 0);
+        return {
+          id: geo.cellId(tile.rx, tile.ry),
+          dx: at.dx,
+          dy: at.dy,
+          x: (at.x - geo.view.x) * sx,
+          y: (at.y - geo.view.y) * sy,
+          lift: (tile.z || 0) * (BLOCK.height / 2) * sy,
+        };
+      })
+      .sort((a, b) => a.dy - b.dy || a.dx - b.dx);
+
+    for (const cell of ordered) {
+      const centre = cell.x + cellWidth / 2;
+      // Pixel *centres*, so a diamond too small to contain one simply loses to
+      // its neighbour rather than being rounded outward over it. Below the
+      // panel's minimum size several cells share a pixel and the loser is one
+      // cell away, which is the tolerance a click has anyway.
+      const first = Math.max(0, Math.ceil(cell.y - 0.5));
+      const last = Math.min(h - 1, Math.floor(cell.y + cellHeight + cell.lift - 0.5));
+      for (let py = first; py <= last; py++) {
+        const half = sweptHalfWidth(py + 0.5 - cell.y, cellWidth, cellHeight, cell.lift);
+        if (half < 0) continue;
+        const from = Math.max(0, Math.ceil(centre - half - 0.5));
+        const to = Math.min(w - 1, Math.floor(centre + half - 0.5));
+        const row = py * w;
+        for (let px = from; px <= to; px++) ids[row + px] = cell.id;
+      }
+    }
+
+    return { width: w, height: h, mapWidth: geo.mapWidth, idStride: geo.idStride, ids };
+  }
+
   function drawCellGrid(ctx, tiles, mapWidth, headroom) {
     ctx.strokeStyle = "rgba(255,255,255,0.28)";
     ctx.lineWidth = 1;
@@ -1104,6 +1378,46 @@
       outlineCells(ctx, keys, cellFor, style.ore[kind], style.oreLine / scale);
     }
     return byKind.size;
+  }
+
+  /**
+   * Every ore and gem cell on the map, as coordinates rather than as pixels.
+   *
+   * `drawOreFields` above bakes these into the render's `marks` surface at the
+   * colour in force when it ran, which is right for a picture written to disk
+   * and wrong for a live one: the in-game radar takes one layered render per map
+   * and keeps it for the whole match, so a baked tint is a colour that cannot
+   * change without redoing that render mid-game. Handing the cells back instead
+   * is the same move `iconOverlay` already makes for the tech-building badges —
+   * numbers, and whoever shows the render draws them.
+   *
+   * Additive: the flat path still bakes exactly what it baked, so
+   * `RENDERER_VERSION` does not move and no stored render goes stale.
+   *
+   * `z` travels with each cell because a cell's place in the picture depends on
+   * it — the render lifts a cell by half a block per elevation level, and a mark
+   * drawn flat would sit below the ground it marks on every cliff.
+   */
+  function oreCells(mapFile) {
+    const height = new Map();
+    for (const tile of mapFile.tiles || []) {
+      if (tile) height.set(tile.rx + "," + tile.ry, tile.z || 0);
+    }
+    const out = {};
+    for (const kind of ORE_KINDS) out[kind] = [];
+    const seen = new Set();
+    for (const overlay of mapFile.overlays || []) {
+      const cls = oreClassFor(overlay.id);
+      if (!cls) continue;
+      const key = overlay.rx + "," + overlay.ry;
+      // One cell, one patch. The id ranges meet at 127 and a map can carry more
+      // than one overlay on a cell; a cell listed twice is a cell filled twice,
+      // which is a darker cell wherever the alpha is not 1.
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out[cls.kind].push({ rx: overlay.rx, ry: overlay.ry, z: height.get(key) || 0 });
+    }
+    return out;
   }
 
   /**
@@ -1605,6 +1919,12 @@
    * @param {boolean} [opts.layers]  also return each sprite type as its own transparent
    *                                 image, drawn without the SPRITE_FIX corrections —
    *                                 what the options page's alignment panel moves
+   * @param {number} [opts.layerWidth] with `layers`: emit them as **canvases** at this
+   *                                 width instead of full-size data URLs, for a consumer
+   *                                 compositing them in-page rather than storing them
+   * @param {boolean} [opts.look]    `false` renders untuned — no appearance dial baked into
+   *                                 any palette, for a consumer applying the same dials
+   *                                 itself at composite time
    * @param {number} [opts.maxWidth] downscale the result to this width (0 = full resolution)
    * @param {object} [opts.sizes]   { name: width | { width, marks } } -> result.variants[name]
    *                                as a data URL. `marks: "compact"` gives the thumbnail
@@ -1621,7 +1941,7 @@
     const layered = !!opts.layers;
     const fix = resolveFix(tune, opts.fix, layered, opts.fixByName);
 
-    const ctx3 = await buildContext(mapFile);
+    const ctx3 = await buildContext(mapFile, opts);
     const { GameMap, TmpDrawable, ObjectType, BridgeOverlayTypes, theater } = ctx3;
     const tileSets = theater.tileSets;
 
@@ -1682,7 +2002,7 @@
     const owners = structureOwnership(mapFile, ctx3);
 
     // --- terrain -----------------------------------------------------------
-    const isoLut = lutFor(ctx3, theater.isoPalette);
+    const isoLut = lutFor(ctx3, theater.isoPalette, "base");
     const tileSprites = new Map(); // TmpImage -> { canvas, offsetX, offsetY }
     const drawable = new TmpDrawable();
     let drawn = 0;
@@ -1738,7 +2058,7 @@
 
     if (opts.objects !== false) {
       for (const smudge of mapFile.smudges) {
-        const obj = spriteForObject(ctx3, smudge.name, ObjectType.Smudge, 0);
+        const obj = spriteForObject(ctx3, smudge.name, ObjectType.Smudge, 0, null, "smudge");
         if (!obj) {
           counts.noArt++;
           continue;
@@ -1758,7 +2078,17 @@
         }
         // Overlay#computeFrame: the frame is the stored value — ore density,
         // wall connectivity, bridge piece.
-        const obj = spriteForObject(ctx3, name, ObjectType.Overlay, overlay.value || 0);
+        // Three kinds of overlay, three placements. Ore and bridges each needed
+        // their own correction against the game; walls and fences are what is
+        // left over as "overlay". Decided before the sprite rather than after,
+        // because it now also decides which appearance dial the sprite is drawn
+        // under -- and the palette is baked at that moment.
+        const overlayType = oreClassFor(overlay.id)
+          ? "ore"
+          : BridgeOverlayTypes.isBridge(overlay.id)
+          ? "bridge"
+          : "overlay";
+        const obj = spriteForObject(ctx3, name, ObjectType.Overlay, overlay.value || 0, null, overlayType);
         if (!obj) {
           counts.noArt++;
           continue;
@@ -1767,20 +2097,12 @@
         const lift = BridgeOverlayTypes.isHighBridge(overlay.id) ? 4 : 0;
         const cell = cellFor(overlay.rx, overlay.ry);
         cell.y -= lift * (BLOCK.height / 2);
-        // Three kinds of overlay, three placements. Ore and bridges each needed
-        // their own correction against the game; walls and fences are what is
-        // left over as "overlay".
-        const overlayType = oreClassFor(overlay.id)
-          ? "ore"
-          : BridgeOverlayTypes.isBridge(overlay.id)
-          ? "bridge"
-          : "overlay";
         queue(jobs, cell, obj, 2, overlayType, fix, name);
         counts.overlays++;
       }
 
       for (const terrain of mapFile.terrains) {
-        const obj = spriteForObject(ctx3, terrain.name, ObjectType.Terrain, 0);
+        const obj = spriteForObject(ctx3, terrain.name, ObjectType.Terrain, 0, null, "terrain");
         if (!obj) {
           counts.noArt++;
           continue;
@@ -1852,24 +2174,63 @@
     // not the map. In a layered render they are also the measuring stick —
     // every one is traced on true cells — so each goes to a surface of its own
     // and the panel can take any of them away.
-    if (opts.grid || layered) drawCellGrid(target("grid"), tiles, mapWidth, headroom);
+    // A layered render gets the grid unless it says otherwise: it is the
+    // alignment panel's measuring stick, and that panel is what layers were
+    // built for. The radar is the second consumer and wants a picture, not a
+    // measuring stick, so `grid: false` has to be able to reach this.
+    if (opts.grid === undefined ? layered : !!opts.grid) {
+      drawCellGrid(target("grid"), tiles, mapWidth, headroom);
+    }
     const badges = drawMarks(target, MARK_STYLES.detail, 1, ORIGIN, opts, marks);
 
     // --- output ------------------------------------------------------------
     let out = opts.crop !== false ? cropScale(canvas, view, headroom, 0, false).canvas : canvas;
 
-    // Layers before any downscale: an offset is measured in render pixels, and
-    // at 3000px on a bigger map a half-cell step would land between them.
+    // Layers before any downscale, unless the caller names a width: an offset is
+    // measured in render pixels, and at 3000px on a bigger map a half-cell step
+    // would land between them.
+    //
+    // Two ways out, on the precedent `sizes` sets just below. A caller that
+    // names no width is sending the layers to **storage** -- the options page's
+    // alignment panel -- and gets full-size data URLs, exactly as before. A
+    // caller that names `layerWidth` is **compositing them in-page**, which is
+    // the radar, and gets canvases at that width.
+    //
+    // That second shape is not a convenience. Ten surfaces of a 3000px map are
+    // around 1.6 GB held as full-size RGBA, and PNG-encoding all of them costs
+    // seconds a match start does not have; at radar width the same stack is a
+    // few tens of megabytes and no encode happens at all. Handing back canvases
+    // rather than data URLs is the other half of that: the radar draws them, so
+    // a round trip through PNG and an `img` would be pure cost.
     let layers = null;
     let layerBytes = 0;
     let layerSize = null;
     if (layered) {
-      layerSize = { width: out.width, height: out.height };
-      layers = { base: out.toDataURL("image/png") };
-      for (const [name, surface] of surfaces) {
-        layers[name] = cropScale(surface, view, headroom, 0, true).canvas.toDataURL("image/png");
+      const width = opts.layerWidth || 0;
+      // `base` comes off the master canvas because in a layered render that is
+      // all the master holds -- the terrain pass draws straight to it and every
+      // sprite pass was diverted to a surface.
+      const emit = (source, alpha) => {
+        const scaled = cropScale(source, view, headroom, width, alpha).canvas;
+        return width ? scaled : scaled.toDataURL("image/png");
+      };
+      layers = { base: emit(canvas, false) };
+      for (const [name, surface] of surfaces) layers[name] = emit(surface, true);
+      const sized = width ? layers.base : out;
+      layerSize = { width: sized.width, height: sized.height };
+      // Bytes are a data-URL figure; canvases are measured by the caller that
+      // decided their width, so reporting 0 here would be a lie either way.
+      if (!width) for (const name of Object.keys(layers)) layerBytes += layers[name].length;
+      // The full-size surfaces are dead the moment they have been emitted, and
+      // there are of them enough that waiting for the collector is visible: a
+      // 3000px map keeps roughly 36 MB per surface alive. Zeroing the backing
+      // store releases it now rather than whenever the next allocation forces a
+      // sweep. Not `canvas` -- `out` is still a view onto it and is returned.
+      for (const [, surface] of surfaces) {
+        surface.width = 0;
+        surface.height = 0;
       }
-      for (const name of Object.keys(layers)) layerBytes += layers[name].length;
+      surfaces.clear();
     }
 
     for (const name of Object.keys(specs)) {
@@ -2894,6 +3255,17 @@
     mapDump,
     save,
     setFix,
+    setLook,
+    geometry,
+    pickBuffer,
+    oreCells,
+    oreKindFor,
+    cellOrigin,
+    cellCorners,
+    cropRect,
+    BLOCK,
+    HEADROOM_LEVELS,
+    effectiveLook,
     effectiveFix,
     setFixByName,
     effectiveFixByName,

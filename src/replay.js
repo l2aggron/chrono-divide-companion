@@ -1054,7 +1054,80 @@
     return 0;
   }
 
+  /**
+   * The client's spelling of a queue, in the one the rest of this file uses.
+   *
+   * `game/player/production/ProductionQueue` names its enum member `Aircrafts`,
+   * and the replay file's own type list — the one `QueueType` above is read out
+   * of — says `Aircraft`. Two names for one queue, arriving from two places into
+   * one report, and neither is wrong. Normalised here, at the boundary the
+   * client's words enter through, so nothing downstream has to know there were
+   * ever two: the order the queues are listed in, the table that says which
+   * factory each reads, and the label a reader sees would each otherwise need
+   * both spellings.
+   *
+   * Only a spelling this repo has seen is renamed. A client that adds a queue
+   * keeps whatever it calls it.
+   */
+  const QUEUE_ALIAS = { Aircrafts: "Aircraft" };
+
+  /**
+   * A tempo reading with the queue names normalised, the factory each queue
+   * reads filled in, and the coefficient worked out.
+   *
+   * **The coefficient.** The engine's build clock is
+   * `baseBuildSpeed × buildSpeedModifier × multipleFactory^-(factories-1)`
+   * ([[cd-power-and-production]]), and the last two factors are the only ones
+   * that belong to the base rather than to the item in the queue. That product
+   * is what a player means by "how fast am I building": 1.00 with one factory
+   * and full power, 1.25 with a second war factory, 1.56 with a third, and less
+   * than 1 while the base is short of power.
+   *
+   * **Zero factories is not a speed, and is reported as one.** The engine's own
+   * expression gives 0.8 there — `pow(0.8, -1)` — for a queue that cannot be
+   * active at all, and drawing that would put a line at four fifths of full
+   * speed through every minute before the player built the factory. `null` is a
+   * gap in the line instead.
+   *
+   * **The factory is filled in when the harvest did not record it.** A run only
+   * started recording which factory each queue reads on 2026-08-31, and every
+   * harvest stored before that has the counts without it — so a report drawn
+   * from one had no way to know that the Defence tab and the Structures tab come
+   * off the same construction yards, and drew the same line twice. `QUEUE_FACTORY`
+   * is this file's own copy of the mapping and answers for those. The harvest's
+   * own answer wins wherever it has one, because it came from the client that
+   * actually played the match.
+   *
+   * Returns the reading unchanged, and with no `rate`, when the rules table is
+   * not loaded: a profile that has never harvested one cannot state a
+   * coefficient, and the report then draws no chart rather than a made-up one.
+   */
+  function tempoOf(tempo, multipleFactory) {
+    if (!tempo || !tempo.factories) return tempo || null;
+    const speed = typeof tempo.speed === "number" ? tempo.speed : 1;
+    const factories = {};
+    const factoryOf = {};
+    const rate = {};
+    for (const [said, count] of Object.entries(tempo.factories)) {
+      const queue = QUEUE_ALIAS[said] || said;
+      factories[queue] = count;
+      const recorded = tempo.factoryOf && tempo.factoryOf[said];
+      const known = recorded === undefined ? QUEUE_FACTORY[queue] : recorded;
+      if (known !== undefined) factoryOf[queue] = String(known);
+      if (multipleFactory > 0) rate[queue] = count > 0 ? speed / Math.pow(multipleFactory, count - 1) : null;
+    }
+    const said = { ...tempo, factories, factoryOf };
+    if (multipleFactory > 0) said.rate = rate;
+    else delete said.rate;
+    return said;
+  }
+
   function mergeSim(report, sim) {
+    // How much a second factory is worth, out of the client's own rules. A
+    // profile with no harvested table cannot state a coefficient at all, and
+    // `tempoOf` then states no coefficient rather than assuming the retail 0.8.
+    const general = generalRules();
+    const multipleFactory = (general && general.multipleFactory) || 0;
     if (!sim || (sim.gameId && report.gameId && sim.gameId !== report.gameId)) return report;
     const rate = report.ticksPerSecond || 60;
     const at = (tick) => tick / rate;
@@ -1131,7 +1204,18 @@
       // Every reading, on the report's own clock, for whatever wants to draw it.
       samples: (sim.samples || []).map((row) => ({
         at: at(row.tick),
-        players: Object.fromEntries((row.players || []).map((player) => [player.name, player])),
+        players: Object.fromEntries(
+          (row.players || []).map((player) => [
+            player.name,
+            // The one thing done to a reading on the way through: the queue
+            // names normalised, the factory each reads filled in where the run
+            // did not record it, and the counts turned into the coefficient
+            // they mean. All three need something this file has and the
+            // renderer deliberately does not — the rules table, and the
+            // mapping from a queue to its factory.
+            player.tempo ? { ...player, tempo: tempoOf(player.tempo, multipleFactory) } : player,
+          ])
+        ),
       })),
       losses: (sim.destroyed || []).map((event) => ({
         at: at(event.tick),
@@ -1285,6 +1369,52 @@
       // Who it came off, when that was anybody — a neutral oil derrick belongs
       // to the map's civilians, and the row for it has one side only.
       from: event.from || "",
+    }));
+    /**
+     * A spy who got in, from both ends.
+     *
+     * One row per infiltration and not grouped, for the capture's reason: a
+     * match has a handful at most and each one is its own move. Neither a loss
+     * nor a delivery, and it must stay out of both — no object was destroyed and
+     * none came out of a queue, so a count that moved here would be a count this
+     * file invented.
+     *
+     * The consequence is deliberately not stated. What a spy does depends on the
+     * building it walked into — credits out of a refinery, veterancy off a
+     * barracks, a power blackout, a stolen tech, the enemy's whole map — and the
+     * harvest sees none of those as an event. The blackout is the one that
+     * surfaces anyway, as an outage on a base with power to spare, and it does
+     * so on its own clock beside this row. Guessing at the rest from a building
+     * name would be a report inventing the interesting half.
+     */
+    report.sim.spyRows = (sim.infiltrations || []).map((event) => ({
+      at: at(event.tick),
+      name: event.name,
+      label: labelFor(event.name),
+      owner: event.owner,
+      // The spy's own type — a Spy, a Yuri, whatever walked in — and whose it
+      // was. Named rather than assumed to be the other side: a match can have
+      // more than two.
+      spy: event.spy || "",
+      spyLabel: event.spy ? labelFor(event.spy) : "",
+      by: event.by || "",
+      // What the engine did about it, by its own conditions rather than by the
+      // building's name. Empty on a harvest taken before the run recorded any.
+      effects: Array.isArray(event.effects) ? event.effects : [],
+      /**
+       * Roughly what was taken, when money was.
+       *
+       * The infiltration event is dispatched after the theft, so only the
+       * balance left behind can be read. The engine takes
+       * `floor(before * share)`, so a bank left holding `left` was holding
+       * `left / (1 - share)` before it, give or take the one credit the floor
+       * ate. Null when no money moved, and null rather than nought when the
+       * harvest predates the reading.
+       */
+      stole:
+        typeof event.left === "number" && event.share > 0 && event.share < 1
+          ? Math.round((event.left / (1 - event.share)) * event.share)
+          : null,
     }));
     report.derivedFrom = "actions + simulation";
     return report;

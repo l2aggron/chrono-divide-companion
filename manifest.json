@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Companion for Chrono Divide",
-  "version": "1.4.0",
-  "description": "Faction labels, per-map hints, a map preview, build hotkeys, a memory readout, settings backup and replay build orders for Chrono Divide.",
+  "version": "1.24.1",
+  "description": "Faction labels, per-map hints, a map preview, build hotkeys, a memory readout, settings backup and replay build orders — from the ladder or from a file — for Chrono Divide.",
   "minimum_chrome_version": "111",
   "icons": {
     "16": "icons/icon-16.png",
@@ -42,7 +42,7 @@
     },
     {
       "matches": ["https://game.chronodivide.com/*"],
-      "js": ["src/glyphs.js", "src/build-chords.js", "src/queue-predict.js", "src/mem-readout.js", "src/companion.js", "src/hq-preview.js", "src/replay-sim.js"],
+      "js": ["src/glyphs.js", "src/render-tune.js", "src/build-chords.js", "src/queue-predict.js", "src/mem-readout.js", "src/companion.js", "src/hq-preview.js", "src/replay-sim.js"],
       "css": ["src/companion.css"],
       "run_at": "document_idle",
       "world": "MAIN"

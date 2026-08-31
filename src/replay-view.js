@@ -478,7 +478,7 @@
    * because nothing was gained — a vehicle became a building, and the row
    * opposite it that a capture would have does not exist.
    */
-  const ROW_SIGN = { built: "+", made: "+", taken: "+", lost: "−", ceded: "−" };
+  const ROW_SIGN = { built: "+", made: "+", taken: "+", lost: "−", ceded: "−", spied: "+", infiltrated: "−" };
 
   /**
    * The space in every one of these is a **non-breaking** space, and it has to
@@ -502,6 +502,12 @@
     deployed: "<>" + GAP,
     taken: "⇄" + GAP,
     ceded: "⇄" + GAP,
+    // A spy, both ways round. The same mark on both sides because it is one
+    // event seen from two columns, and the sign beside it — a plus on the
+    // side that sent it, a minus on the side it happened to — is what says
+    // which end of it this row is.
+    spied: "☂" + GAP,
+    infiltrated: "☂" + GAP,
     resigned: "⚑" + GAP,
     // Three ways out, three marks, and they are three different claims. A flag
     // is a decision. The zigzag is the client losing the player, which is what a
@@ -1073,6 +1079,29 @@
             player: { name: taken ? capture.owner : capture.from },
           });
         }
+        /**
+         * A spy in a building, on the side it happened to and on the side that
+         * sent it — two rows for one event, the way a capture already is.
+         *
+         * Read outward from the clock like everything else, so a reader sees the
+         * spy leave one column and arrive in the other at the same second. That
+         * pairing is the whole reading: an infiltration is the one move in the
+         * match where the two build orders are describing each other.
+         */
+        for (const spy of report.sim.spyRows || []) {
+          const mine = names.has(spy.by);
+          if (!mine && !names.has(spy.owner)) continue;
+          rows.push({
+            at: spy.at,
+            kind: mine ? "spied" : "infiltrated",
+            object: { label: spy.label, name: spy.name },
+            from: spy.by,
+            to: spy.owner,
+            spy: spy.spyLabel,
+            said: spySaid(spy),
+            player: { name: mine ? spy.by : spy.owner },
+          });
+        }
       }
       // The moment a side left the match. It comes out of the file, not a
       // re-run, so unlike the two blocks around it this row is on the axis with
@@ -1165,6 +1194,26 @@
     // in the gutter: a row's words end wherever they end, and only something
     // living in the cell can grow to reach them. It carries no text, so the
     // cell's words are still exactly its `textContent`.
+    /**
+     * Where each side was short of power, so the build order can be read
+     * against it.
+     *
+     * The same spans the power chart shades, on the same clock, because they
+     * are the same fact and a reader moving between the two must not have to
+     * check. What it adds over the chart is what the timeline is for: a
+     * brownout with three rows in it is a player who kept building, and one
+     * with nothing in it is a player who could not.
+     *
+     * Empty as soon as there is no harvest, which is every report that has not
+     * been re-run — the file holds no power.
+     */
+    const browned = report.sim
+      ? sides.map((side) =>
+          outagesFor(report.sim.samples, side.map((player) => player.name), Math.max(report.duration, 1))
+        )
+      : sides.map(() => []);
+    const brownedAt = (side, at) => browned[side].find((span) => at >= span.from && at <= span.to);
+
     const leadingLines = [new Set(), new Set()];
     for (const side of [0, 1]) {
       for (const run of runs[side]) {
@@ -1190,12 +1239,23 @@
       const at = index + 2;
       const cells = line.rows.map((row, index) => {
         const cell = document.createElement("div");
+        // The band runs across empty cells as well as full ones, which is what
+        // makes it a band: the telling part of a brownout is usually the rows
+        // that are not in it.
+        const outage = brownedAt(index, line.at);
+        const shade = outage ? " browned" + (outage.blackout ? " blackedout" : "") : "";
         cell.className =
           "replaycell" +
           (row
             ? ` ${row.kind} s${index + 1}${row.structure ? " structure" : ""}${row.unplaced ? " unplaced" : ""}` +
               (row.ready ? " wasready" : "")
-            : ` empty s${index + 1}`);
+            : ` empty s${index + 1}`) +
+          shade;
+        if (outage) {
+          cell.title = outage.blackout
+            ? "This side was blacked out here — a spy or a lightning storm, not a shortage."
+            : "This side was short of power here, and everything in its queues was building slower.";
+        }
         cell.style.gridArea = `${at} / ${index === 0 ? 2 : 4}`;
         if (row) {
             // Who did it, when a side is more than one player. Its own element
@@ -1283,6 +1343,15 @@
                   // one thing a cell in a column cannot say by itself.
                   `${row.object.name} — ${row.to} captured it at ${clock(row.at)}` +
                   (row.from ? ` from ${row.from}` : ", from an owner the re-run could not name")
+                : row.kind === "spied" || row.kind === "infiltrated"
+                ? // Both ends on both rows, for the capture's reason, and then
+                  // what the engine actually did about it. The effects are here
+                  // rather than in the row's words because the axis is sized by
+                  // counting characters -- a sentence in a cell widens the whole
+                  // column, and this one is a detail about a row a reader has
+                  // already been shown.
+                  `${row.from} got a spy into ${row.to}'s ${row.object.name} at ${clock(row.at)}` +
+                  (row.said ? ` — ${row.said}` : " — what it did was not recorded")
                 : row.kind === "defeated"
                 ? `${row.player.name} was out at ${clock(row.at)} — off the re-run's own sampling, since a match won by capture leaves nothing in the file`
                 : row.kind === "resigned"
@@ -1613,22 +1682,670 @@
     return { credits, losses, income, harvesters: counted ? harvesters : [], derricks: counted ? derricks : [], end };
   }
 
+  /**
+   * The stretches of the match a side spent browned out.
+   *
+   * A reading is taken every five seconds of match time, so a span runs from the
+   * first sample that reads low to the first one that does not, and is closed at
+   * the end of the match if it never does. The resolution is the sample rate and
+   * nothing finer — a brownout that began and ended between two readings is not
+   * in the harvest at all. That is a limit worth stating rather than papering
+   * over, and it is why a band is drawn at least a pixel wide.
+   *
+   * **A blackout is marked apart from a shortage.** The two are indistinguishable
+   * in a chart of production against drain — one of them is invisible there,
+   * because a blacked-out base can be running a surplus — and they are different
+   * things to the player: one is a building to put down, the other is a spy who
+   * already walked in. A span counts as a blackout only when every low reading
+   * in it carried the flag, since a base that is both short and blacked out has
+   * a shortage it can act on.
+   *
+   * A side rather than a player: one member of a team browning out is the team's
+   * problem, and every chart on this page is per side.
+   */
+  function outagesFor(samples, names, end) {
+    const spans = [];
+    let open = null;
+    for (const row of samples) {
+      const readings = names.map((name) => row.players[name]).filter((player) => player && player.power);
+      // Nobody on this side has a power reading at this moment — an old harvest,
+      // or a side already out of the match. Not the same as "no outage": an
+      // unmeasured moment must not close a span a later reading would continue.
+      if (!readings.length) continue;
+      const low = readings.some((player) => player.power.low);
+      if (low) {
+        if (!open) open = { from: row.at, to: row.at, blackout: true };
+        open.to = row.at;
+        open.blackout = open.blackout && readings.every((player) => !player.power.low || player.power.blackout);
+      } else if (open) {
+        // Closed at the reading that ended it, not at the last one that was low.
+        // The outage ended somewhere in the five seconds between the two and the
+        // harvest cannot say where, so the span is the interval that contains it
+        // -- an upper bound, and the only one that does not report a brownout
+        // seen in a single reading as lasting no time at all.
+        open.to = row.at;
+        spans.push(open);
+        open = null;
+      }
+    }
+    if (open) {
+      open.to = Math.max(open.to, end);
+      spans.push(open);
+    }
+    return spans;
+  }
+
+  /**
+   * The queues a tempo chart offers, and the two it starts with.
+   *
+   * Infantry and Vehicles by default because those are the two queues a match is
+   * actually paced by — a second barracks and a second war factory are the
+   * standard way a player buys tempo, and Structures, Armory, Aircraft and Ships
+   * are each a line that is flat at 1.00 for most matches. The rest are one
+   * click away in the legend rather than absent, because "was my shipyard ever
+   * doubled" is a real question and a chart that cannot answer it is a chart
+   * that has to be believed.
+   */
+  const TEMPO_QUEUES = ["Infantry", "Vehicles"];
+
+  /**
+   * The order the queues are listed in, stated rather than inherited.
+   *
+   * The names arrive as the keys of an object that has been through
+   * `chrome.storage`, and the order they come back in is not the order they went
+   * in: measured 2026-08-31 in a real browser, a harvest written with
+   * Structures, Infantry, Vehicles, Aircraft, Ships came back alphabetical, so
+   * the legend read aircraft, infantry, ships, structures, vehicles. Both orders
+   * are arbitrary; this one is the sidebar's, which is the one a player already
+   * has in their head, and it is the same list `src/replay.js` names its queues
+   * in.
+   *
+   * A queue this list has never heard of goes after the ones it has, in
+   * alphabetical order — a client that gains a queue gains a line in a
+   * predictable place rather than at a random one.
+   *
+   * The names are the ones `src/replay.js` hands over, which are the client's
+   * with its one spelling difference already normalised: it calls the aircraft
+   * queue `Aircrafts`, and a list written in the file's own `Aircraft` would
+   * have sorted the real one to the end as a queue it had never heard of.
+   */
+  const QUEUE_ORDER = ["Structures", "Armory", "Infantry", "Vehicles", "Aircraft", "Ships"];
+  const queueRank = (queue) => {
+    const at = QUEUE_ORDER.indexOf(queue);
+    return at < 0 ? QUEUE_ORDER.length : at;
+  };
+
+  /**
+   * The two readings a re-run takes about how fast a base was working.
+   *
+   * Both are absent rather than zero on a harvest taken before they existed, for
+   * the reason the miner counts above are: a flat line at nought is a claim, and
+   * it would be a false one.
+   */
+  function tempoCurves(report, sides) {
+    const end = Math.max(report.duration, 1);
+    const samples = report.sim.samples;
+    const measured = (read) => samples.some((row) => Object.values(row.players).some(read));
+    const hasPower = measured((player) => !!player.power);
+    const hasTempo = measured((player) => !!(player.tempo && player.tempo.rate));
+    /**
+     * The counts are asked for separately from the coefficient they feed.
+     *
+     * `rate` is the count run through the rules — `speed / multipleFactory^(n-1)`
+     * — and `tempoOf` states no rate at all on a profile that has never
+     * harvested a rules table, because the coefficient would be invented. The
+     * count is not: it came off the client's own `getFactoryCount`, and it is
+     * the same number whether or not this machine knows what a second factory is
+     * worth. So a harvest with no rules behind it draws the factory chart and
+     * not the build-speed one, rather than neither.
+     */
+    const hasCount = measured((player) => !!(player.tempo && player.tempo.factories));
+
+    const power = [];
+    const bands = [];
+    const outages = [];
+    const tempo = [];
+    const counts = [];
+    // Every queue any reading mentions, in the order the client listed them, so
+    // a client that gains a queue gains a line without this file being edited.
+    // Read off the counts rather than off the rates, since the rates are the
+    // narrower of the two and a queue absent from the list has no line on either
+    // chart.
+    const queues = [];
+    for (const row of samples) {
+      for (const player of Object.values(row.players)) {
+        for (const queue of Object.keys((player.tempo && player.tempo.factories) || {})) {
+          if (!queues.includes(queue)) queues.push(queue);
+        }
+      }
+    }
+    queues.sort((a, b) => queueRank(a) - queueRank(b) || a.localeCompare(b));
+    /**
+     * Two queues off one factory are one line.
+     *
+     * The Defence tab (`Armory`) and the Structures tab are separate queues —
+     * a player builds a turret and a refinery at the same time — but the
+     * client's own `getFactoryTypeForQueueType` gives both of them
+     * `BuildingType`, so their coefficients are the same number at every
+     * reading. Drawn as two lines it was one line twice, and a legend key that
+     * could never differ from the one above it.
+     *
+     * Decided on what the harvest recorded rather than on the name `Armory`:
+     * a client that gave the Defence tab a factory of its own would get its
+     * line back without this file being edited. A harvest taken before the
+     * factory was recorded keeps every queue, which is the state this was in
+     * before — one redundant line, and not a wrong one.
+     */
+    const factoryOf = (queue) => {
+      for (const row of samples) {
+        for (const player of Object.values(row.players)) {
+          const said = player.tempo && player.tempo.factoryOf && player.tempo.factoryOf[queue];
+          if (said !== undefined) return said;
+        }
+      }
+      return undefined;
+    };
+    // Forward, so the queue that survives is the first one in the order above —
+    // Structures rather than Armory. Walked backwards it kept whichever came
+    // last, which is the Defence tab standing in for the Structures tab.
+    const claimed = new Map();
+    const kept = [];
+    for (const queue of queues) {
+      const factory = factoryOf(queue);
+      if (factory !== undefined && claimed.has(factory)) continue;
+      if (factory !== undefined) claimed.set(factory, queue);
+      kept.push(queue);
+    }
+    queues.length = 0;
+    queues.push(...kept);
+
+    sides.forEach((side, index) => {
+      const label = sideName(side);
+      const names = side.map((player) => player.name);
+      const across = (row, read) =>
+        names.reduce((total, name) => total + ((row.players[name] && read(row.players[name])) || 0), 0);
+
+      if (hasPower) {
+        // Produced solid and drawn dashed, in the side's own colour: they are
+        // two readings of one thing, and the gap between them is the whole
+        // point — a reader is looking at where the lines cross, not at either
+        // line on its own.
+        power.push({
+          label: `${label} produced`,
+          group: label,
+          name: "produced",
+          index,
+          points: samples.map((row) => [Math.min(row.at, end), across(row, (p) => p.power && p.power.total)]),
+        });
+        power.push({
+          label: `${label} used`,
+          group: label,
+          name: "used",
+          index,
+          dash: 1,
+          points: samples.map((row) => [Math.min(row.at, end), across(row, (p) => p.power && p.power.drain)]),
+        });
+        const spans = outagesFor(samples, names, end);
+        outages.push({ label, index, spans });
+        for (const span of spans) {
+          bands.push({
+            from: span.from,
+            to: span.to,
+            index,
+            label: span.blackout
+              ? `${label} blacked out — a spy or a lightning storm, not a shortage`
+              : `${label} short of power`,
+          });
+        }
+      }
+
+      /**
+       * A line per queue, in the side's colour, told apart by its stroke.
+       *
+       * The two per-queue charts are the same picture of the same queues on the
+       * same clock — the same lines, the same two switched on, the same key in
+       * the same place — and the whole point of stacking them is that a reader
+       * moves between them without re-reading the legend. Built once so they
+       * cannot drift apart; what differs is the number `pick` reads and how
+       * `fold` turns a team of two into one line.
+       *
+       * A reading that is not a number is not a point: `pick` returning
+       * `undefined` or `null` leaves a gap in the line, and a moment where no
+       * player on the side answered at all leaves a gap in every line.
+       */
+      const perQueue = (pick, fold, extra) =>
+        queues.map((queue) => ({
+          label: `${label} ${queue.toLowerCase()}`,
+          // The side is written once at the head of its own legend row, so a
+          // key says only what varies — which on these charts is the queue.
+          group: label,
+          name: queue.toLowerCase(),
+          index,
+          dash: queues.indexOf(queue),
+          on: TEMPO_QUEUES.includes(queue),
+          ...extra,
+          points: samples
+            .map((row) => {
+              const values = names
+                .map((name) => pick(row.players[name], queue))
+                .filter((value) => typeof value === "number");
+              return values.length ? [Math.min(row.at, end), fold(values)] : null;
+            })
+            .filter(Boolean),
+        }));
+
+      if (hasTempo) {
+        // A queue with no factory is a gap, not a nought and not a one: the
+        // engine's own arithmetic gives 0.8 there, for a queue that cannot run
+        // at all, and `tempoOf` writes `null` rather than that. A team is its
+        // best factory count for a queue: two players building vehicles are not
+        // building each other's, and the faster of the two is what the side's
+        // tempo reads as.
+        tempo.push(
+          ...perQueue(
+            (player, queue) => player && player.tempo && player.tempo.rate && player.tempo.rate[queue],
+            (values) => Math.max(...values),
+            { suffix: "x" }
+          )
+        );
+      }
+
+      if (hasCount) {
+        // **Nought is a reading here, where on the chart above it is a gap.**
+        // "No war factory yet" is the fact this chart exists to show — it is
+        // where the coefficient line starts, and a line that began in mid-air at
+        // the minute the factory landed would hide the minutes before it. The
+        // fold is a sum for the same reason it is a max above: two players'
+        // barracks are two barracks for the side, while their build speeds are
+        // not additive at all.
+        counts.push(
+          ...perQueue(
+            (player, queue) => player && player.tempo && player.tempo.factories && player.tempo.factories[queue],
+            (values) => values.reduce((sum, one) => sum + one, 0),
+            // Held between readings rather than sloped between them: a factory
+            // count is an integer that changes at an instant, and a line ramping
+            // from one to two across five seconds reads as one and a half
+            // factories at a moment nobody ever had one and a half.
+            { step: true }
+          )
+        );
+      }
+    });
+
+    return { power, bands, outages, tempo, counts, end };
+  }
+
+  /**
+   * What a side's outages add up to, as a sentence.
+   *
+   * Three numbers, because they are three different complaints: a lot of short
+   * brownouts is a base built to the edge of its power, one long one is a plant
+   * that died, and a blackout is somebody else's doing.
+   */
+  function outageSaid(spans) {
+    if (!spans.length) return "never short of power";
+    const total = spans.reduce((sum, span) => sum + (span.to - span.from), 0);
+    const longest = spans.reduce((most, span) => Math.max(most, span.to - span.from), 0);
+    const blackouts = spans.filter((span) => span.blackout).length;
+    return (
+      `${spans.length} ${spans.length === 1 ? "outage" : "outages"}, ${mmss(total)} in total, ` +
+      `longest ${mmss(longest)}` +
+      (blackouts ? ` — ${blackouts} of them a blackout rather than a shortage` : "")
+    );
+  }
+
+  /**
+   * What a spy did, in the words the row has room for.
+   *
+   * The effects come off the harvest, which read them off the building's own
+   * rules at the moment it happened — so this says what the engine did and not
+   * what a building of that name usually does. An infiltration with no effects
+   * recorded is not nothing: it is a harvest taken before the run looked, and
+   * the row still stands as a fact about the match.
+   */
+  const SPY_EFFECT = {
+    radar: "their map goes dark",
+    blackout: "the base blacks out",
+    superweapon: "the superweapon clock restarts",
+    money: "credits change hands",
+  };
+
+  function spySaid(row) {
+    const said = (row.effects || []).map((effect) => SPY_EFFECT[effect]).filter(Boolean);
+    if (row.stole) said[said.indexOf(SPY_EFFECT.money)] = `about ${row.stole} credits taken`;
+    return said.join(", ");
+  }
+
+  /**
+   * The spies, added up for the header.
+   *
+   * Counted per side that *sent* one, because that is the move: getting in is
+   * something a player did, and being got into is something that happened to
+   * them. The buildings are named because "three spies" and "three spies, all
+   * into the refinery" are different matches.
+   */
+  function spySummary(report, sides) {
+    const rows = (report.sim && report.sim.spyRows) || [];
+    if (!rows.length) return "";
+    return sides
+      .map((side) => {
+        const names = new Set(side.map((player) => player.name));
+        const mine = rows.filter((row) => names.has(row.by));
+        if (!mine.length) return "";
+        const into = [...new Set(mine.map((row) => row.label))].join(", ");
+        const stolen = mine.reduce((total, row) => total + (row.stole || 0), 0);
+        return (
+          `${sideName(side)}: ${mine.length} ${mine.length === 1 ? "spy" : "spies"} in — ${into}` +
+          (stolen ? `, about ${stolen} credits taken` : "")
+        );
+      })
+      .filter(Boolean)
+      .join(" · ");
+  }
+
   const SVG_NS = "http://www.w3.org/2000/svg";
   /**
-   * The plot, in its own coordinates; the SVG scales to whatever width the panel
-   * gives it. Right padding is where the lines' own labels go.
+   * The plot, in its own coordinates. Right padding is where the lines' own
+   * labels go.
    *
-   * The box is kept close to the width a chart actually gets on screen, because
-   * everything inside an SVG scales together — at 640 units in a 370px panel the
-   * tick labels came out at six pixels. Near 1:1, 10-unit text is 10-pixel text.
+   * **A fallback, not the size.** Everything inside an SVG scales together, so a
+   * fixed box drawn into a row of a different width scales its own tick labels
+   * with it — at 520 units in a 1300px row the 10-pixel text came out at 25.
+   * Every chart measures the width it actually got and draws at 1:1 (see
+   * `draw`), and this is what it draws with when there is no layout to ask:
+   * before the figure is in the document, and every draw in the node tier.
+   *
+   * One box for every chart. There used to be two, a narrow one for the charts
+   * that sat in a grid column and a wide one for the three that spanned the row;
+   * the charts are one column of full-width rows now, so the distinction and the
+   * `wide` flag that carried it are gone.
    */
-  const CHART = { w: 520, h: 150, left: 40, right: 78, top: 12, bottom: 20 };
+  const CHART = { w: 1080, h: 190, left: 40, right: 78, top: 12, bottom: 20 };
 
   const svgEl = (name, attrs) => {
     const node = document.createElementNS(SVG_NS, name);
     for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
     return node;
   };
+
+  /**
+   * One crosshair for every chart on the page.
+   *
+   * A reader hovering the power chart is asking what the rest of the match was
+   * doing at that second — the whole reason the charts share a clock — and
+   * answering it on one chart while the other eight stay blank makes them read
+   * the number and then hunt for the same x in each. So the pointer names a
+   * moment and every chart answers for it: the rule under the cursor, and the
+   * readout with it.
+   *
+   * A moment in **seconds**, not a fraction of the plot: the charts are all
+   * built to `Math.max(report.duration, 1)` today, and a bus that passed a
+   * fraction would go quietly wrong the day one of them is not.
+   */
+  function crosshairBus() {
+    const marks = [];
+    return {
+      join: (mark) => marks.push(mark),
+      at: (seconds) => {
+        for (const mark of marks) mark.show(seconds);
+      },
+      off: () => {
+        for (const mark of marks) mark.hide();
+      },
+    };
+  }
+
+  /** Where the reader's own order for the charts is kept between visits. */
+  const ORDER_KEY = "cdc.replay.chartorder";
+
+  function savedOrder() {
+    try {
+      const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(ORDER_KEY);
+      const said = raw ? JSON.parse(raw) : null;
+      return Array.isArray(said) ? said.filter((name) => typeof name === "string") : [];
+    } catch (e) {
+      // Not fatal and not silent: the charts fall back to the order the report
+      // builds them in, which is the order they had before anyone dragged one.
+      console.warn("[replay] the stored chart order is unreadable, ignoring it", e);
+      return [];
+    }
+  }
+
+  function storeOrder(names) {
+    try {
+      if (typeof localStorage !== "undefined") localStorage.setItem(ORDER_KEY, JSON.stringify(names));
+    } catch (e) {
+      console.warn("[replay] could not remember the chart order", e);
+    }
+  }
+
+  /**
+   * The order the charts are in, which is the reader's to change.
+   *
+   * Two charts are compared by reading down the page, and which two those are is
+   * a question about the match rather than about the report — power against
+   * factories in one game, credits against losses in the next. So the order is
+   * not the file's to fix: every caption carries a grip, a chart is dragged by
+   * it to wherever it is wanted, and the arrangement is remembered.
+   *
+   * **The list here is the model and the DOM follows it.** `insertBefore` moves a
+   * node that is already in the document rather than copying it, so a move is a
+   * reorder and not a rebuild — the charts keep their listeners, their toggled
+   * lines and their measured boxes across one.
+   *
+   * **A pointer drag, not HTML5 drag-and-drop.** The native one looked right in
+   * a check that dragged a chart onto its neighbour and was unusable in the
+   * hand, for a reason no assertion here was asking about: nine full-width
+   * charts are four screens tall, and inside a native drag the wheel is
+   * swallowed and the page's own edge auto-scroll never fired, so nothing could
+   * be carried past the two charts that happened to be on the screen already.
+   * The index arithmetic below is the same arithmetic, kept — driven directly
+   * with a walking pointer it put every chart exactly where it was asked to
+   * (probed 2026-08-31). It is the transport that was wrong.
+   *
+   * The keyboard does the same job as the drag: the grip is a button, and
+   * ArrowUp/ArrowDown move the chart it belongs to. Not an afterthought — it is
+   * the only one of the two a check without a browser can drive, and a drag with
+   * no keyboard equivalent is a control some people cannot reach at all.
+   */
+  function chartOrder() {
+    const laid = [];
+    let container = null;
+    let held = null;
+
+    const nameOf = (figure) => figure.getAttribute("data-chart");
+    const relay = () => {
+      for (const figure of laid) container.append(figure);
+    };
+    const save = () => storeOrder(laid.map(nameOf));
+    const move = (figure, to) => {
+      const from = laid.indexOf(figure);
+      if (from < 0 || !container) return false;
+      const at = Math.max(0, Math.min(laid.length - 1, to));
+      if (at === from) return false;
+      laid.splice(from, 1);
+      laid.splice(at, 0, figure);
+      // One node moved rather than the whole list re-appended: this runs on
+      // every pointer move, and relaying detached and reinserted all nine charts
+      // several times a second for a change that touched one of them.
+      container.insertBefore(figure, laid[at + 1] || null);
+      return true;
+    };
+
+    /**
+     * Where the held chart belongs, given where the pointer is.
+     *
+     * The first chart whose middle is below the pointer is the one being pushed
+     * down; past the last middle, the pointer is at the end. `move` splices out
+     * before it splices in, so an index past the chart being held has already
+     * shifted up by one by the time it is used.
+     */
+    const settle = (clientY) => {
+      if (!held || !container) return;
+      let to = laid.findIndex((figure) => {
+        const box = figure.getBoundingClientRect();
+        return clientY < box.top + box.height / 2;
+      });
+      if (to < 0) to = laid.length;
+      const from = laid.indexOf(held);
+      move(held, to > from ? to - 1 : to);
+    };
+
+    /**
+     * The panel scrolls itself while a chart is being carried to the edge.
+     *
+     * The whole reason the native drag had to go: a list four screens tall
+     * cannot be rearranged by a gesture that can only reach what is already on
+     * the screen. The wheel works during a pointer drag — nothing is swallowing
+     * it — and this covers the rest, so a chart can be taken from the bottom of
+     * the report to the top in one movement.
+     *
+     * Speed is proportional to how far into the edge band the pointer is, which
+     * is what makes it controllable: resting just inside it creeps, pushing to
+     * the very edge runs.
+     */
+    const EDGE = 90;
+    const SPEED = 18;
+    let scroller = null;
+    let pointerY = 0;
+    let rolling = 0;
+
+    /** What actually scrolls when the charts are taller than the panel holding them. */
+    const scrollerOf = (node) => {
+      const how = typeof getComputedStyle === "function" ? (el) => getComputedStyle(el).overflowY : () => "";
+      for (let at = node; at && at.parentElement; at = at.parentElement) {
+        const said = how(at);
+        if ((said === "auto" || said === "scroll") && at.scrollHeight > at.clientHeight + 1) return at;
+      }
+      return (typeof document !== "undefined" && document.scrollingElement) || null;
+    };
+
+    const roll = () => {
+      rolling = requestAnimationFrame(roll);
+      if (!held || !scroller) return;
+      const page = typeof document !== "undefined" && scroller === document.scrollingElement;
+      const box = page
+        ? { top: 0, bottom: (typeof window !== "undefined" && window.innerHeight) || 0 }
+        : scroller.getBoundingClientRect();
+      const above = pointerY - (box.top + EDGE);
+      const below = pointerY - (box.bottom - EDGE);
+      const by = above < 0 ? Math.max(-1, above / EDGE) * SPEED : below > 0 ? Math.min(1, below / EDGE) * SPEED : 0;
+      if (!by) return;
+      const was = scroller.scrollTop;
+      scroller.scrollTop += by;
+      // The charts moved under a pointer that did not, so where the held one
+      // belongs has changed with no `pointermove` to say so.
+      if (scroller.scrollTop !== was) settle(pointerY);
+    };
+
+    const startRolling = () => {
+      if (!rolling && typeof requestAnimationFrame === "function") rolling = requestAnimationFrame(roll);
+    };
+    const stopRolling = () => {
+      if (rolling && typeof cancelAnimationFrame === "function") cancelAnimationFrame(rolling);
+      rolling = 0;
+    };
+
+    /**
+     * The pointer is followed on the window, not captured on the grip.
+     *
+     * Capture is the obvious answer and does not survive this gesture: the first
+     * move reorders the list, reordering it moves the grip's own figure in the
+     * DOM, and moving a capturing element implicitly releases its capture. The
+     * `lostpointercapture` that follows arrived four events into a drag —
+     * measured 2026-08-31 — which is the drag working for exactly one position
+     * and then putting the chart down. Window listeners for the length of the
+     * gesture and nothing else: added on the press, removed on the release.
+     */
+    const onMove = (event) => {
+      if (!held) return;
+      pointerY = event.clientY;
+      settle(pointerY);
+    };
+    const onUp = () => {
+      if (!held) return;
+      held.className = "replaychart";
+      held = null;
+      scroller = null;
+      stopRolling();
+      unwatch();
+      save();
+    };
+    const listens = () => typeof window !== "undefined" && typeof window.addEventListener === "function";
+    const watch = () => {
+      if (!listens()) return;
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+      // A gesture the browser takes away — a window losing focus, a context
+      // menu — leaves the chart where it had got to rather than held forever.
+      window.addEventListener("pointercancel", onUp);
+    };
+    const unwatch = () => {
+      if (!listens()) return;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+
+    return {
+      /**
+       * Called by `replayChart` as it builds each grip, in the order the report
+       * builds the charts — which is therefore the order they are in before
+       * anyone has arranged anything.
+       */
+      grip: (figure, grip) => {
+        laid.push(figure);
+        grip.addEventListener("pointerdown", (event) => {
+          if (event.button) return;
+          held = figure;
+          pointerY = event.clientY;
+          figure.className = "replaychart dragging";
+          scroller = scrollerOf(container);
+          startRolling();
+          watch();
+          // A press and drag on a control is not a text selection.
+          if (event.preventDefault) event.preventDefault();
+          // ...but the focus that `preventDefault` just suppressed is how the
+          // arrow keys below are reached, so it is given back deliberately.
+          if (grip.focus) grip.focus();
+        });
+        grip.addEventListener("keydown", (event) => {
+          const step = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
+          if (!step) return;
+          // Otherwise the panel scrolls under a chart that is moving with it.
+          if (event.preventDefault) event.preventDefault();
+          if (!move(figure, laid.indexOf(figure) + step)) return;
+          save();
+          // The grip travelled with its chart, so focus follows it there and the
+          // next press carries on from where this one left off.
+          if (grip.focus) grip.focus();
+        });
+      },
+      /** Called once by `render`, with the element the charts were appended to. */
+      hold: (node) => {
+        container = node;
+        const saved = savedOrder();
+        const built = laid.slice();
+        laid.length = 0;
+        laid.push(
+          ...built
+            .map((figure, index) => {
+              const at = saved.indexOf(nameOf(figure));
+              // A chart the saved order has never heard of goes after the ones
+              // it knows, in the order the report built it: a report that gains
+              // a chart gains it in a predictable place rather than a random
+              // one, and the next drag writes the whole list back anyway.
+              return { figure, at: at < 0 ? saved.length + index : at };
+            })
+            .sort((a, b) => a.at - b.at)
+            .map((one) => one.figure)
+        );
+        relay();
+      },
+      /** The order as it stands, for a check to read without a DOM to walk. */
+      names: () => laid.map(nameOf),
+    };
+  }
 
   /**
    * A round number at or above the top of the data, so the axis reads cleanly.
@@ -1648,125 +2365,396 @@
   }
 
   /**
-   * One line chart: time across, one line per side, a crosshair on hover.
+   * One line chart: time across, one line per series, a crosshair on hover.
    *
    * Written out as SVG rather than drawn on a canvas because the reading of it
    * is text — the crosshair has to name a number at a time, and a canvas would
    * have to redraw itself to say so.
+   *
+   * A series is `{ label, index, points }`, where `index` is which side it
+   * belongs to and therefore its colour. Three optional fields on it, all for
+   * charts carrying more than one line per side:
+   *
+   * - `dash` — a small number picking a stroke pattern, so two lines of one
+   *   side's colour are told apart without inventing a third colour. Colour
+   *   stays the side, which is what a reader is already tracking across every
+   *   chart on the page.
+   * - `on: false` — drawn only once the reader asks for it. A chart with twelve
+   *   possible lines is unreadable with twelve drawn and useless with two fixed
+   *   ones.
+   * - `suffix` — a word after the number in the readout, where the unit is not
+   *   the chart's own.
+   * - `step: true` — held between readings instead of sloped between them, for a
+   *   count that changes at an instant rather than a quantity that drifts. Only
+   *   the drawn path is a staircase; `points` stays one pair per reading, which
+   *   is what the crosshair indexes into.
+   *
+   * `opts.toggle` makes the legend the control: each key turns its line on and
+   * off, and the plot is **rebuilt** rather than hidden, because the axis is
+   * scaled to what is shown — a switched-off series left in the maximum draws
+   * every visible line along the floor.
+   *
+   * `opts.bands` are spans of time shaded behind everything,
+   * `{ from, to, index, label }`. They are a second kind of fact on the same
+   * clock: not a value at an instant but a stretch of match a side spent in some
+   * state, which a line cannot say and a reader needs in the same glance.
+   *
+   * `opts.sync` is the page's shared crosshair (`crosshairBus`): the chart
+   * reports the moment the pointer is over and answers for a moment any other
+   * chart reports. Left out, it drives its own and nothing else's.
+   *
+   * `opts.order` is the page's running order (`chartOrder`): given one, the
+   * caption carries a grip that drags and takes the arrow keys. Left out, no
+   * grip is drawn at all, because a control that reorders nothing is worse than
+   * no control.
    */
-  function replayChart(title, note, series, end, format) {
+  function replayChart(title, note, series, end, format, opts = {}) {
+    // A copy, because each draw measures the width it actually got into it.
+    const frame = { ...CHART };
     const figure = document.createElement("figure");
     figure.className = "replaychart";
-
+    // What the running order knows a chart by, and what a check selects it with.
+    figure.setAttribute("data-chart", title);
     const caption = document.createElement("figcaption");
+    const head = document.createElement("div");
+    head.className = "replaycaphead";
     const name = document.createElement("strong");
     name.textContent = title;
+    if (opts.order) {
+      const grip = document.createElement("button");
+      grip.type = "button";
+      grip.className = "replaygrip";
+      grip.textContent = "⠿";
+      // Not a duplicate of the caption beside it: this one says what the control
+      // does, which is nowhere else on the page.
+      grip.title = "Drag to move this chart, or move it with the arrow keys.";
+      grip.setAttribute("aria-label", `Move the ${title} chart`);
+      head.append(grip);
+      opts.order.grip(figure, grip);
+    }
+    head.append(name);
     const why = document.createElement("span");
     why.textContent = note;
-    caption.append(name, why);
+    caption.append(head, why);
+
+    // Every chart answers for the moment any of them is pointed at. Its own, when
+    // it is the only chart there is — a check that builds one calls this without
+    // a page around it.
+    const sync = opts.sync || crosshairBus();
+    // Reassigned by each draw, so the crosshair a redraw leaves behind is the one
+    // the bus moves. Registered once: the figure outlives every plot inside it.
+    let showAt = () => {};
+    let hideAt = () => {};
+    sync.join({ show: (t) => showAt(t), hide: () => hideAt() });
+
+    // Which lines are drawn right now. Keyed by label because that is what the
+    // legend, the end-labels and the readout already name a line by — two series
+    // sharing one label would be indistinguishable on the chart itself long
+    // before they were indistinguishable here.
+    const shown = new Set(series.filter((line) => line.on !== false).map((line) => line.label));
 
     // A legend for two series, always — identity is never colour alone, and the
     // crosshair readout below names the same two.
     const legend = document.createElement("div");
     legend.className = "replaylegend";
-    for (const line of series) {
-      const item = document.createElement("span");
-      const dot = document.createElement("span");
-      dot.className = "replaydot s" + (line.index + 1);
-      item.append(dot, document.createTextNode(line.label));
-      legend.append(item);
-    }
-
-    const top = niceMax(Math.max(...series.flatMap((line) => line.points.map((p) => p[1])), 0));
-    const x = (t) => CHART.left + (t / end) * (CHART.w - CHART.left - CHART.right);
-    const y = (v) => CHART.h - CHART.bottom - (v / top) * (CHART.h - CHART.top - CHART.bottom);
-
-    const svg = svgEl("svg", { viewBox: `0 0 ${CHART.w} ${CHART.h}`, class: "replayplot", role: "img" });
-    const described = svgEl("title", {});
-    described.textContent = `${title} — ${note}`;
-    svg.append(described);
-
-    // Grid: recessive, three horizontals and a vertical each minute.
-    for (const value of [0, top / 2, top]) {
-      svg.append(svgEl("line", { x1: CHART.left, x2: CHART.w - CHART.right, y1: y(value), y2: y(value), class: "replaygrid" }));
-      const label = svgEl("text", { x: CHART.left - 8, y: y(value) + 4, class: "replaytick end" });
-      label.textContent = format(value);
-      svg.append(label);
-    }
-    for (let minute = 0; minute * 60 <= end; minute++) {
-      const at = x(minute * 60);
-      svg.append(svgEl("line", { x1: at, x2: at, y1: CHART.top, y2: CHART.h - CHART.bottom, class: "replaygrid" }));
-      const label = svgEl("text", { x: at, y: CHART.h - 6, class: "replaytick mid" });
-      label.textContent = `${minute}:00`;
-      svg.append(label);
-    }
-
-    for (const line of series) {
-      svg.append(
-        svgEl("polyline", {
-          points: line.points.map(([t, v]) => `${x(t)},${y(v)}`).join(" "),
-          class: "replayline s" + (line.index + 1),
-        })
-      );
-      const last = line.points[line.points.length - 1];
-      const label = svgEl("text", { x: x(last[0]) + 8, y: y(last[1]) + 4, class: "replaytick" });
-      label.textContent = line.label;
-      svg.append(label);
-    }
-
-    const crosshair = svgEl("line", {
-      x1: 0,
-      x2: 0,
-      y1: CHART.top,
-      y2: CHART.h - CHART.bottom,
-      class: "replaycross",
-      visibility: "hidden",
-    });
-    svg.append(crosshair);
+    const plot = document.createElement("div");
+    plot.className = "replayplotwrap";
 
     const readout = document.createElement("div");
     readout.className = "replayreadout";
     readout.hidden = true;
 
-    const surface = svgEl("rect", {
-      x: CHART.left,
-      y: CHART.top,
-      width: CHART.w - CHART.left - CHART.right,
-      height: CHART.h - CHART.top - CHART.bottom,
-      class: "replayhit",
-    });
-    surface.addEventListener("mousemove", (event) => {
-      const box = svg.getBoundingClientRect();
-      const scale = CHART.w / box.width;
-      const at = ((event.clientX - box.left) * scale - CHART.left) / (CHART.w - CHART.left - CHART.right);
-      const t = Math.max(0, Math.min(end, at * end));
-      crosshair.setAttribute("x1", x(t));
-      crosshair.setAttribute("x2", x(t));
-      crosshair.setAttribute("visibility", "visible");
-      readout.hidden = false;
-      readout.style.left = `${((x(t) - CHART.left) / (CHART.w - CHART.left - CHART.right)) * 100}%`;
-      readout.textContent = "";
-      const when = document.createElement("strong");
-      when.textContent = clock(t);
-      readout.append(when);
-      for (const line of series) {
-        const point = line.points[Math.min(line.points.length - 1, Math.round((t / end) * (line.points.length - 1)))];
-        const row = document.createElement("span");
-        const dot = document.createElement("span");
-        dot.className = "replaydot s" + (line.index + 1);
-        row.append(dot, document.createTextNode(`${line.label} ${format(point[1])}`));
-        readout.append(row);
-      }
-    });
-    surface.addEventListener("mouseleave", () => {
-      crosshair.setAttribute("visibility", "hidden");
-      readout.hidden = true;
-    });
-    svg.append(surface);
+    const lineClass = (line) => `replayline s${line.index + 1}${line.dash ? " d" + line.dash : ""}`;
 
-    const plot = document.createElement("div");
-    plot.className = "replayplotwrap";
-    plot.append(svg, readout);
+    const draw = () => {
+      plot.textContent = "";
+      readout.hidden = true;
+      /**
+       * A chart is drawn at the width it actually has.
+       *
+       * Everything in an SVG scales with the box, text included, and the row a
+       * chart spans is a different number of pixels in every window: a fixed box
+       * came out at 1.2x in one and 2.5x in another — 16-pixel tick labels
+       * beside the 10-pixel ones on the chart above. Measured, it is 1:1 and
+       * 10-unit text is 10-pixel text, which is what the box constant is for.
+       *
+       * `CHART` stays the fallback for a draw with no layout to ask: before the
+       * figure is in the document, and every draw in the node tier.
+       */
+      if (plot.clientWidth > frame.left + frame.right + 100) frame.w = plot.clientWidth;
+      const visible = series.filter((line) => shown.has(line.label));
+
+      const top = niceMax(Math.max(...visible.flatMap((line) => line.points.map((p) => p[1])), 0));
+      const x = (t) => frame.left + (t / end) * (frame.w - frame.left - frame.right);
+      const y = (v) => frame.h - frame.bottom - (v / top) * (frame.h - frame.top - frame.bottom);
+
+      // Named with `aria-label` and not an SVG `<title>`. A `<title>` is the
+      // accessible name *and* a tooltip, and the tooltip it drew was the caption
+      // two lines above it, word for word, hovering over the plot a second after
+      // the pointer stopped. The name is still there for a reader who needs it
+      // read out; the duplicate that covered the chart is not.
+      const svg = svgEl("svg", {
+        viewBox: `0 0 ${frame.w} ${frame.h}`,
+        class: "replayplot",
+        role: "img",
+        "aria-label": `${title} — ${note}`,
+      });
+
+      // Behind the grid, so a band never covers a gridline or a line: it is the
+      // ground the chart is drawn on rather than a mark on it.
+      for (const band of opts.bands || []) {
+        const from = x(Math.max(0, Math.min(end, band.from)));
+        const to = x(Math.max(0, Math.min(end, band.to)));
+        const rect = svgEl("rect", {
+          x: from,
+          y: frame.top,
+          // A blackout can be shorter than a pixel of a twenty-minute match, and
+          // an outage nobody can see is an outage the chart did not report.
+          width: Math.max(1, to - from),
+          height: frame.h - frame.top - frame.bottom,
+          class: `replayband s${band.index + 1}`,
+        });
+        const said = svgEl("title", {});
+        said.textContent = band.label || "";
+        rect.append(said);
+        svg.append(rect);
+      }
+
+      // Grid: recessive, three horizontals and a vertical each minute.
+      for (const value of [0, top / 2, top]) {
+        svg.append(svgEl("line", { x1: frame.left, x2: frame.w - frame.right, y1: y(value), y2: y(value), class: "replaygrid" }));
+        const label = svgEl("text", { x: frame.left - 8, y: y(value) + 4, class: "replaytick end" });
+        label.textContent = format(value);
+        svg.append(label);
+      }
+      for (let minute = 0; minute * 60 <= end; minute++) {
+        const at = x(minute * 60);
+        svg.append(svgEl("line", { x1: at, x2: at, y1: frame.top, y2: frame.h - frame.bottom, class: "replaygrid" }));
+        const label = svgEl("text", { x: at, y: frame.h - 6, class: "replaytick mid" });
+        label.textContent = `${minute}:00`;
+        svg.append(label);
+      }
+
+      for (const line of visible) {
+        if (!line.points.length) continue;
+        // A stepped line holds the previous reading up to the moment of the new
+        // one, so the change is the vertical it actually was. The corner is an
+        // extra vertex on the drawn path only — `points` is untouched, because
+        // the crosshair reads it by index and a doubled path would halve the
+        // clock under the cursor.
+        const path = [];
+        let held = null;
+        for (const [t, v] of line.points) {
+          if (line.step && held !== null) path.push(`${x(t)},${held}`);
+          held = y(v);
+          path.push(`${x(t)},${held}`);
+        }
+        svg.append(svgEl("polyline", { points: path.join(" "), class: lineClass(line) }));
+        const last = line.points[line.points.length - 1];
+        const label = svgEl("text", { x: x(last[0]) + 8, y: y(last[1]) + 4, class: "replaytick" });
+        // The part that varies, where the legend has already said whose it is.
+        // The full label would repeat the side's name at the end of every line,
+        // in 78 units of room that `Player_A produced` does not fit.
+        label.textContent = line.group ? line.name || line.label : line.label;
+        svg.append(label);
+      }
+
+      // Said rather than left as an empty box: a chart whose lines are all
+      // switched off looks broken, and the fix is one click above it.
+      if (!visible.length) {
+        const empty = svgEl("text", { x: frame.w / 2, y: frame.h / 2, class: "replaytick mid" });
+        empty.textContent = "nothing selected — pick a line above";
+        svg.append(empty);
+      }
+
+      const crosshair = svgEl("line", {
+        x1: 0,
+        x2: 0,
+        y1: frame.top,
+        y2: frame.h - frame.bottom,
+        class: "replaycross",
+        visibility: "hidden",
+      });
+      svg.append(crosshair);
+
+      const surface = svgEl("rect", {
+        x: frame.left,
+        y: frame.top,
+        width: frame.w - frame.left - frame.right,
+        height: frame.h - frame.top - frame.bottom,
+        class: "replayhit",
+      });
+      /**
+       * The rule and the readout at a moment, wherever that moment came from.
+       *
+       * Split from the pointer on purpose: the moment is now reported by
+       * whichever chart is under the cursor and answered by all of them, so the
+       * hand that draws it cannot be the hand that reads the mouse.
+       */
+      showAt = (seconds) => {
+        const t = Math.max(0, Math.min(end, seconds));
+        crosshair.setAttribute("x1", x(t));
+        crosshair.setAttribute("x2", x(t));
+        crosshair.setAttribute("visibility", "visible");
+        readout.hidden = false;
+        /**
+         * The readout floats **above** the plot, not over it.
+         *
+         * It used to sit inside the plot at its top edge, which is where the
+         * lines usually are — the box a reader opened to read the numbers
+         * covered the part of the chart the numbers were about. There is room
+         * over the caption and the legend and nothing there is worth protecting:
+         * the legend says what the readout is already saying by name, and the
+         * whole thing goes away by moving the pointer off the chart.
+         *
+         * Anchored at whichever end it is near instead of always centred, so a
+         * crosshair at 0:00 or at the last second does not hang the box off the
+         * side of the report. Switched rather than measured: reading the box's
+         * own width back would be a layout flush per chart per mouse move, on
+         * nine charts that all answer at once.
+         */
+        const share = (x(t) - frame.left) / (frame.w - frame.left - frame.right);
+        readout.style.left = `${share * 100}%`;
+        readout.style.transform = share < 0.12 ? "none" : share > 0.88 ? "translateX(-100%)" : "translateX(-50%)";
+        readout.textContent = "";
+        const when = document.createElement("strong");
+        when.textContent = clock(t);
+        readout.append(when);
+        for (const line of visible) {
+          if (!line.points.length) continue;
+          const point = line.points[Math.min(line.points.length - 1, Math.round((t / end) * (line.points.length - 1)))];
+          const row = document.createElement("span");
+          row.append(swatch(line), document.createTextNode(`${line.label} ${format(point[1])}${line.suffix || ""}`));
+          readout.append(row);
+        }
+        // What the shading under the crosshair means, named at the moment the
+        // reader is pointing at it — a band with no reading is a stain.
+        for (const band of opts.bands || []) {
+          if (t < band.from || t > band.to || !band.label) continue;
+          const row = document.createElement("span");
+          row.className = "replaybandkey s" + (band.index + 1);
+          row.textContent = band.label;
+          readout.append(row);
+        }
+      };
+      hideAt = () => {
+        crosshair.setAttribute("visibility", "hidden");
+        readout.hidden = true;
+      };
+
+      surface.addEventListener("mousemove", (event) => {
+        const box = svg.getBoundingClientRect();
+        const scale = frame.w / box.width;
+        const at = ((event.clientX - box.left) * scale - frame.left) / (frame.w - frame.left - frame.right);
+        // Reported, not drawn: this chart's own rule comes back through the bus
+        // with everyone else's, so there is one path and no chance of the chart
+        // under the pointer disagreeing with the eight below it.
+        sync.at(Math.max(0, Math.min(end, at * end)));
+      });
+      surface.addEventListener("mouseleave", () => sync.off());
+      svg.append(surface);
+      plot.append(svg, readout);
+    };
+
+    /**
+     * A short piece of the line itself, as the key.
+     *
+     * A round dot cannot show a dash pattern — at eight pixels across, solid,
+     * dashed and dotted are one grey circle — so on a chart where two lines of
+     * one side's colour are told apart by their stroke, the key was showing the
+     * one thing that does not distinguish them. This is the stroke, drawn in the
+     * same classes the line on the plot is drawn in, in a viewBox whose units
+     * are pixels at the size it renders — so the dash a reader sees in the key
+     * is the dash they see on the chart, at the same scale.
+     */
+    const swatch = (line) => {
+      const svg = svgEl("svg", { class: "replayswatch", viewBox: "0 0 24 8", "aria-hidden": "true" });
+      svg.append(svgEl("line", { x1: 1, y1: 4, x2: 23, y2: 4, class: lineClass(line) }));
+      return svg;
+    };
+
+    /**
+     * The legend, grouped by side when the series say which side they are.
+     *
+     * A chart with five queues per side had ten keys reading `Player_A
+     * structures`, `Player_A infantry`, … — the side's name eleven times over,
+     * in a row long enough to wrap into the chart under it. So a series that
+     * carries a `group` gets its name written once, with the parts that vary
+     * beside it:
+     *
+     *     Player_A   ─ structures  ╌ infantry  ┄ vehicles
+     *     P_B        ─ structures  ╌ infantry  ┄ vehicles
+     *
+     * Opt-in rather than inferred: a chart whose two lines are one per side has
+     * nothing to group — `Player_A: credits` over `P_B: credits` is the same
+     * repetition moved into a second column — so only the charts that repeat a
+     * name set `group`, and the rest keep the flat row.
+     */
+    const key = (line) => {
+      const item = document.createElement(opts.toggle ? "button" : "span");
+      item.append(swatch(line), document.createTextNode(line.name || line.label));
+      if (!opts.toggle) return item;
+      item.type = "button";
+      item.className = "replaykey";
+      item.setAttribute("aria-pressed", shown.has(line.label) ? "true" : "false");
+      // A series with no points has nothing to draw, and a key that turns
+      // nothing on reads as a broken control rather than as an empty queue —
+      // found in a browser, where clicking the aircraft key of a side that never
+      // built a helipad did exactly nothing and looked like a bug.
+      // A key that can be clicked gets no tooltip: the caption above already
+      // says the legend is the control, and repeating it on every one of ten
+      // keys put a box over the chart whenever the pointer crossed the legend.
+      // A key that cannot keeps its, because why it is dead is nowhere else.
+      if (!line.points.length) {
+        item.disabled = true;
+        item.title = `${line.label}: no factory for it at any point in the match, so there is no line to draw.`;
+      }
+      item.addEventListener("click", () => {
+        if (shown.has(line.label)) shown.delete(line.label);
+        else shown.add(line.label);
+        item.setAttribute("aria-pressed", shown.has(line.label) ? "true" : "false");
+        draw();
+      });
+      return item;
+    };
+
+    const grouped = series.length > 0 && series.every((line) => line.group);
+    if (grouped) {
+      legend.className = "replaylegend bysides";
+      const rows = new Map();
+      for (const line of series) {
+        if (!rows.has(line.group)) rows.set(line.group, []);
+        rows.get(line.group).push(line);
+      }
+      for (const [side, lines] of rows) {
+        const row = document.createElement("div");
+        row.className = "replayseries";
+        const who = document.createElement("span");
+        // Coloured like the lines under it: the side's name is the one place the
+        // colour can be stated without a stroke to read it off.
+        who.className = "replaysidename s" + (lines[0].index + 1);
+        who.textContent = side;
+        row.append(who);
+        for (const line of lines) row.append(key(line));
+        legend.append(row);
+      }
+    } else {
+      for (const line of series) legend.append(key(line));
+    }
+
+    draw();
+    // And drawn again whenever that width changes, since the box it measured is
+    // only right for the window it measured in. Width only: a redraw changes the
+    // plot's height, and reacting to that is the loop. Absent in the node tier,
+    // where there is no layout for the observer to report.
+    if (typeof ResizeObserver !== "undefined") {
+      let was = 0;
+      new ResizeObserver(() => {
+        if (Math.abs(plot.clientWidth - was) < 2) return;
+        was = plot.clientWidth;
+        draw();
+      }).observe(plot);
+    }
     figure.append(caption, legend, plot);
     return figure;
   }
@@ -1802,6 +2790,10 @@
     clockRate = report.ticksPerSecond || 60;
     clockMode = CLOCKS[opts.clock] ? opts.clock : "real";
 
+    // Before the header, which now states a fact about them: who the two sides
+    // are is a property of the report and nothing above this reads it.
+    const sides = replaySides(report);
+
     const head = document.createElement("div");
     head.className = "replayhead";
     const title = document.createElement("h3");
@@ -1830,6 +2822,9 @@
           ? `re-run in ${report.sim.seconds}s`
           : `re-run covers ${simShare(report.sim)} of the match${report.sim.error ? ` — ${report.sim.error}` : ""}`
         : "",
+      // Only when there were any. A match with no spies in it says nothing about
+      // spies, rather than saying none — the header is facts, not a checklist.
+      sides ? spySummary(report, sides) : "",
     ].filter(Boolean)) {
       const said = typeof fact === "string" ? document.createElement("span") : fact;
       said.className = "replayfact";
@@ -1838,7 +2833,6 @@
     }
     head.append(title, facts);
 
-    const sides = replaySides(report);
     const timeline = document.createElement("div");
     let showCameos = opts.cameos !== false;
     let showOverclicks = !!opts.overclicks;
@@ -1977,17 +2971,28 @@
       const money = (value) => (value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(Math.round(value)));
       const charts = document.createElement("div");
       charts.className = "replaycharts";
+      /**
+       * What every chart on the page shares, wired in one place.
+       *
+       * One crosshair and one running order, so a chart cannot be built without
+       * them by forgetting an argument at one of eleven call sites — which is
+       * exactly the sort of thing that shows up as a single chart that does not
+       * answer the pointer, months later.
+       */
+      const shared = { sync: crosshairBus(), order: chartOrder() };
+      const chartOf = (title, note, series, end, format, opts = {}) =>
+        replayChart(title, note, series, end, format, { ...opts, ...shared });
       if (report.sim && report.sim.samples.length) {
         // The match has been played through, so the proxy comes down: these are
         // the real numbers it was standing in for.
         const real = simCurves(report, sides);
         const whole = (value) => String(Math.round(value));
         charts.append(
-          replayChart("Credits", "what each side actually had, read off the match every five seconds", real.credits, real.end, money),
+          chartOf("Credits", "what each side actually had, read off the match every five seconds", real.credits, real.end, money),
           // Beside the bank on purpose: the two answer different questions and
           // are read against each other. A side can be out-earning the other
           // and holding less, which is a build order spending well.
-          replayChart(
+          chartOf(
             "Gold per minute",
             `income as it arrived, averaged over a ${INCOME_WINDOW}-second window — ore lands in lumps, so a reading per sample was a comb`,
             real.income,
@@ -2005,14 +3010,14 @@
         // take the derrick count down with it.
         if (real.derricks.length) {
           charts.append(
-            replayChart(
+            chartOf(
               "Harvesters",
               "miners on the map — inside a factory does not count, and the type is the economy",
               real.harvesters,
               real.end,
               whole
             ),
-            replayChart(
+            chartOf(
               "Oil derricks",
               "held, not captured: a derrick taken back is off this line the moment it changes hands",
               real.derricks,
@@ -2021,8 +3026,77 @@
             )
           );
         }
+        /**
+         * Power, the tempo it buys, and what was bought with.
+         *
+         * Three charts and a sentence, all off the same reading and each absent
+         * on a harvest that lacks it — which is what `tempoCurves` gates on,
+         * rather than this drawing a chart of nothing.
+         *
+         * **The three take the whole row and stack.** Every other chart on the
+         * page answers on its own; these three are one answer read down a
+         * column — the plant landed *here*, so the brownout ended *here*, so the
+         * coefficient came back to 1 *here*. Side by side in the grid, two of
+         * them would sit on one row with a third orphaned under, on two
+         * different horizontal scales, and the reader would be matching times by
+         * eye across a gap. Full width puts the same clock at the same x in all
+         * three, which is the only arrangement in which they are read against
+         * each other rather than one at a time.
+         *
+         * The outage bands go under the power chart and under nothing else. The
+         * temptation is to shade every chart on the page with them, and the
+         * reason not to is that they would then be a decoration: a band under
+         * the credits line says nothing a reader can act on, while a band under
+         * the two power lines is the moment they crossed, named.
+         */
+        const base = tempoCurves(report, sides);
+        if (base.power.length) {
+          const said = base.outages
+            .map((side) => `${side.label}: ${outageSaid(side.spans)}`)
+            .join(" · ");
+          charts.append(
+            chartOf(
+              "Power",
+              `produced against drawn, with every brownout shaded — ${said}`,
+              base.power,
+              base.end,
+              whole,
+              { bands: base.bands, wide: true }
+            )
+          );
+        }
+        if (base.tempo.length) {
+          charts.append(
+            chartOf(
+              "Build speed",
+              "how fast each queue was building against one factory at full power — a second factory is 1.25x, " +
+                "a third 1.56x, and a base short of power is below 1. Click a name to add or drop a line.",
+              base.tempo,
+              base.end,
+              (value) => (Math.round(value * 100) / 100).toFixed(2),
+              { toggle: true, wide: true }
+            )
+          );
+        }
+        // Directly under the speed it explains. The chart above answers "how
+        // fast", this one answers "off how many", and the two together separate
+        // the reasons a queue slowed: the line above dipping while this one
+        // holds is the power, and this one dropping is a factory that died.
+        if (base.counts.length) {
+          charts.append(
+            chartOf(
+              "Factories",
+              "buildings feeding each queue — the count the speed above is worked out from. Nought is a real " +
+                "reading here: a queue with no factory is a line on the floor, not a gap. Click a name to add or drop a line.",
+              base.counts,
+              base.end,
+              whole,
+              { toggle: true, wide: true }
+            )
+          );
+        }
         charts.append(
-          replayChart(
+          chartOf(
             "Units and buildings lost",
             "cumulative, one step per loss — read off the destroy events, not the file",
             real.losses,
@@ -2032,7 +3106,7 @@
         );
       } else {
         charts.append(
-          replayChart(
+          chartOf(
             "Ordered value",
             "credits committed — units as the queue took them, buildings as placed. Not income: a replay holds no credits.",
             curves.value,
@@ -2042,7 +3116,7 @@
         );
       }
       charts.append(
-        replayChart(
+        chartOf(
           "Actions per minute",
           `over a ${APM_WINDOW}-second window — where each side was pushing, not how well`,
           curves.rate,
@@ -2050,6 +3124,10 @@
           (value) => String(Math.round(value))
         )
       );
+      // Last, with every chart built: the saved arrangement is applied here and
+      // the container takes the drag, so a chart that was never built is simply
+      // a name in the saved list that no longer matches anything.
+      shared.order.hold(charts);
       out.append(charts);
     }
 
@@ -2089,6 +3167,11 @@
     renderColumns,
     replayCurves,
     simCurves,
+    // Exported for the same reason the two above are: how a side of two players
+    // is folded into one line differs per chart — a sum of their factories, the
+    // better of their speeds — and neither fold is visible from the rendered
+    // report of a 1v1, where the two answers are the same number.
+    tempoCurves,
     replayChart,
     niceMax,
     APM_WINDOW,

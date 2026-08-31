@@ -399,13 +399,23 @@ h1 {
 /* The side tabs. Buttons rather than radios: they switch a view, they do not
    record a preference, and a radio group here would be saved by every form the
    page ever grows. */
-.buildsides {
+/* The build list's side tabs, and the taunt editor's country picker. One pair
+   of rules rather than two copies: they are the same control — a row of
+   toggles that changes what the panel below is *about* without changing
+   anything it edits — and they differ only in what they are called, because a
+   country is not a side. `flex-wrap` is the taunts' doing: ten countries do not
+   fit on one line of a narrow window, and a row that scrolled off the edge
+   would hide half the game. */
+.buildsides,
+.tauntsides {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 14px;
 }
 
-.buildside.on {
+.buildside.on,
+.tauntside.on {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -689,6 +699,61 @@ button:hover {
 
 /* A preview is now something you click, and our render is worth telling apart
    from the map's own at a glance. */
+/* The global brightness/contrast pair, set on the root by applyGlobalFilter().
+   On the pictures themselves and not their frames, so the badge layer stacked
+   over a render in the viewer keeps its own contrast. */
+.card img.shot,
+.lightbox img {
+  filter: var(--cdc-render-filter, none);
+}
+
+/* --- Map rendering dials --------------------------------------------------
+   A row is label / brightness / value / contrast / value, on one line, so the
+   eight element types read as a column of pairs rather than sixteen controls.
+   The value outputs are tabular so the numbers do not jump about while a slider
+   is being dragged. */
+.tune-subhead {
+  margin: 14px 0 2px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.tune-colour {
+  width: 44px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(255, 224, 0, 0.4);
+  background: none;
+  cursor: pointer;
+}
+
+.tune-dial {
+  width: 110px;
+  vertical-align: middle;
+}
+
+.tune-out {
+  min-width: 3.2em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.tune-type-row {
+  gap: 8px;
+}
+
+.tune-type-label {
+  min-width: 15em;
+}
+
+.tune-stale {
+  margin: 6px 0 0;
+  opacity: 0.75;
+  font-style: italic;
+}
+
 .card img.shot {
   cursor: zoom-in;
 }
@@ -1274,7 +1339,13 @@ button:hover {
    to say. 88px is the longest word any buildable object has (`Headquarters`,
    `Construction`) plus its air, so a name now wraps instead of being cut. */
 .setgroup-wide {
-  /* No cap of its own: it holds two columns now, and each of them caps itself. */
+  /* No cap of its own: it holds two columns now, and each of them caps itself.
+     A row to itself as well — `.settings` wraps, and a 100% basis is what makes
+     a wide group take one rather than share the row with a narrow neighbour and
+     end up at half of it. Lifting the cap alone was not enough: the taunt group
+     has a sibling, so it still came out 401px wide and its grid, which is five
+     fractions of that, gave each cell 76px. */
+  flex: 1 1 100%;
   max-width: none;
 }
 
@@ -1302,6 +1373,16 @@ button:hover {
   min-width: 0;
 }
 
+/* The build grid's controls are shrink-to-fit because its cells are a cameo
+   wide and cannot be anything else. The taunt grid's columns are fractions, so
+   its column has to be *given* a width for a fraction to be a fraction of
+   something — left to shrink-to-fit, each cell collapsed to whatever its
+   longest unbreakable word needed, about 76px. 460px is the same floor the
+   stacking media query above is written around. */
+.tauntcontrols {
+  flex: 1 1 460px;
+}
+
 /* One under the other as soon as the two no longer fit: a reading column, the
    gap, and the grid's own 460px, which is the part that cannot give. */
 @media (max-width: 1240px) {
@@ -1316,7 +1397,9 @@ button:hover {
 
 .chordgrid {
   display: grid;
-  grid-template-columns: repeat(var(--cols), 88px);
+  /* --cell is a cameo plus its border and stays that for the build grid; the
+     taunt grid widens it, because what its cells carry is a sentence. */
+  grid-template-columns: repeat(var(--cols), var(--cell, 88px));
   gap: 5px;
   margin-bottom: 12px;
   /* The last resort, for a window too narrow even for one column of this: the
@@ -1374,9 +1457,18 @@ button:hover {
 /* One cell is one key. The cameo is drawn at its native 60×36 with the name
    under it, so the cell is as wide as the picture plus its border and the row of
    five is as wide as the row of five keys. */
+/* One cell is one key, and every key on a keyboard is the same size. The
+   `min-height` is on every cell and not only on the empty ones, which is the
+   bug it fixes: it used to sit on `.chordcell.empty` alone, sized to match a
+   cameo cell, and that held open every row of the *build* grid by accident —
+   every row of that grid has a cameo in it. The taunt grid has no cameo
+   anywhere, so its top row, the one row with no empty cell in it, collapsed to
+   28px against the 62px of the two below. Measured 2026-08-25; reported as
+   "the upper buttons are smaller", which is exactly what it was. */
 .chordcell {
   position: relative;
   display: block;
+  min-height: 62px;
   padding: 5px 4px 4px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--line);
@@ -1437,6 +1529,172 @@ button:hover {
   color: var(--dim);
   overflow: hidden;
   overflow-wrap: break-word;
+}
+
+/* --- the taunt grid's own cell ------------------------------------------------
+
+   A rail and the words, laid out like the in-game overlay's tile because it
+   holds the same thing. The rail carries the key you press, the taunt's number
+   beside it, and the control that plays the sound; the words take everything
+   left.
+
+   Until 1.15.0 the key and the number were corner badges, which cost a 22px
+   band across the whole top of the cell to clear — reported as the cell using
+   its space badly, and it was. A column costs the width it occupies.
+
+   The columns are fractions, not pixels. 5 × 128px plus gaps is wider than a
+   settings panel in a window that is not maximised, and `.chordgrid` is an
+   `overflow-x: auto` box — so the grid grew a scrollbar rather than fitting,
+   which is the other half of the same report. `minmax(0, 1fr)` cannot overflow,
+   and with nothing to scroll the box can go back to `visible` and let a hover
+   reveal spill out of it. */
+#tauntGrid {
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  overflow: visible;
+}
+
+#tauntGrid .chordcell {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  /* Enough for the rail, which is the taller of the two columns whenever the
+     words are one line. Below the words' own three lines, so a cell is the same
+     height whatever is in it and the grid stays a keyboard. */
+  min-height: 52px;
+  padding: 4px;
+  text-align: left;
+}
+
+/* Key, number, play — two on the first line, the control under them. `auto
+   auto` rather than a fixed width so a two-character key label ("F10" never
+   appears here, but a layout could) widens the rail instead of clipping. */
+.chordrail {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px 3px;
+  font-style: normal;
+}
+
+/* In the build grid the key is a badge pinned to the cell's corner. Here it is
+   the rail's first column and the biggest thing in the cell, because it is what
+   you actually press. */
+#tauntGrid .chordkey {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--accent);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.chordnum {
+  color: var(--dim);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.1;
+}
+
+/* The play control. Spans both rail columns so it centres under the pair, and
+   is sized to the glyph rather than to the page's button padding — this is a
+   16px square in a 26px column, not a form button. */
+.chordplay {
+  grid-column: 1 / -1;
+  justify-self: center;
+  min-width: 0;
+  padding: 0;
+  width: 22px;
+  height: 16px;
+  line-height: 14px;
+  font-size: 10px;
+  text-align: center;
+}
+
+.chordplay.playing {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* No sound file for this one: the import skipped the folder, or this country's
+   was never in it. Not an error — the taunt is still sent and every other
+   player hears their own copy — so it is dimmed rather than coloured like a
+   warning, and the title says what it means. */
+.chordplay.missing {
+  border-style: dashed;
+  color: var(--dim);
+  cursor: default;
+}
+
+/* The box the words live in. It holds their three lines' worth of space
+   whether or not there are any, which is what keeps every cell one height —
+   and it is what the reveal below positions against, so the reveal needs no
+   number for where the words start. */
+.chordwords {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* `.chordname`'s own size, restated: `em` here has to mean lines of the text
+     this box holds, and the cell around it inherits the page's 13px. Getting
+     that wrong is not subtle — it sized the box to three and a half lines of
+     the wrong font and let the fourth spill out of the cell. */
+  font-size: 11px;
+  /* Four lines at the 1.2 line-height on `.chordname`. Four rather than three
+     because the columns are fractions of the panel now: at five to a settings
+     panel a tile is about 130px, and three lines of that is under fifty
+     characters — most of the eighty lines would be cut, and a reveal that
+     fires on almost every tile is not a reveal. */
+  height: 4.8em;
+}
+
+/* Exactly three lines, not at least three: a cell that sized itself to its own
+   words would make one row of the grid taller than the next. 3.6em is three
+   lines of the 1.2 line-height on `.chordname`. */
+#tauntGrid .chordname {
+  margin-top: 0;
+  height: 100%;
+  -webkit-line-clamp: 4;
+  text-align: left;
+}
+
+/* No line for this country — between the ten the table holds there is none, so
+   the cell says what the taunt is *for* instead. Marked, because a role is not
+   a quote and must not read as one. */
+#tauntGrid .chordname.chordrole {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* The rest of a line that did not fit, on hover or on keyboard focus.
+
+   `position: absolute` inside `.chordwords` is the whole trick: the words leave
+   the flow, so they can grow to their full height without the cell changing
+   size or the grid reflowing around it — and because the box they leave is the
+   box they were drawn in, there is no offset to compute. `pointer-events: none`
+   so the click that picks this key still reaches the cell underneath. Only a
+   line that actually clipped gets this; the class is set from a measurement,
+   not from a guess about length. */
+#tauntGrid .chordcell:hover .chordname.clipped,
+#tauntGrid .chordcell:focus-visible .chordname.clipped {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 3;
+  /* Both halves of the clamp have to go, not only the height: the base rule is
+     a `-webkit-box` with `-webkit-line-clamp: 3` on it, and a taller box that
+     is still clamped is still three lines. */
+  display: block;
+  -webkit-line-clamp: unset;
+  height: auto;
+  padding-bottom: 4px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
 }
 
 .chordedit {

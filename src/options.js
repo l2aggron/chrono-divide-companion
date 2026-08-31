@@ -26,6 +26,13 @@
   const chordClearEl = document.getElementById("chordClear");
   const chordResetEl = document.getElementById("chordReset");
   const chordSlotNameEl = document.getElementById("chordSlotName");
+  const tauntGridEl = document.getElementById("tauntGrid");
+  const tauntCountriesEl = document.getElementById("tauntCountries");
+  const tauntNoteEl = document.getElementById("tauntNote");
+  const tauntPickEl = document.getElementById("tauntPick");
+  const tauntClearEl = document.getElementById("tauntClear");
+  const tauntResetEl = document.getElementById("tauntReset");
+  const tauntSlotNameEl = document.getElementById("tauntSlotName");
   const buildListEl = document.getElementById("buildList");
   const buildPickEl = document.getElementById("buildPick");
   const buildAddEl = document.getElementById("buildAdd");
@@ -74,6 +81,7 @@
   const lightboxIconsEl = document.getElementById("lightboxIcons");
   const replayInputEl = document.getElementById("replayInput");
   const replayGoEl = document.getElementById("replayGo");
+  const replayFileEl = document.getElementById("replayFile");
   const replayPlayerEl = document.getElementById("replayPlayer");
   const replayRealmEl = document.getElementById("replayRealm");
   const replayLadderEl = document.getElementById("replayLadder");
@@ -136,12 +144,15 @@
   const DEFAULT_KEYS = {
     overlay: { code: "KeyO", keyCode: 79, alt: true, shift: false, ctrl: false, label: "Alt+O" },
     queues: { code: "KeyP", keyCode: 80, alt: true, shift: false, ctrl: false, label: "Alt+P" },
+    taunts: { code: "KeyY", keyCode: 89, alt: true, shift: false, ctrl: false, label: "Alt+Y" },
     hqSwap: { code: "KeyI", keyCode: 73, alt: true, shift: false, ctrl: false, label: "Alt+I" },
     hqFull: { code: "KeyU", keyCode: 85, alt: true, shift: false, ctrl: false, label: "Alt+U" },
     menu: { code: "KeyM", keyCode: 77, alt: true, shift: false, ctrl: false, label: "Alt+M" },
     debug: { code: "KeyJ", keyCode: 74, alt: true, shift: false, ctrl: false, label: "Alt+J" },
     net: { code: "KeyN", keyCode: 78, alt: true, shift: false, ctrl: false, label: "Alt+N" },
+    radar: { code: "KeyL", keyCode: 76, alt: true, shift: false, ctrl: false, label: "Alt+L" },
     memory: { code: "KeyK", keyCode: 75, alt: true, shift: false, ctrl: false, label: "Alt+K" },
+    sidebar: { code: "KeyH", keyCode: 72, alt: true, shift: false, ctrl: false, label: "Alt+H" },
   };
 
   const KEY_LABELS = {
@@ -151,8 +162,11 @@
     hqSwap: "Swap the in-game preview",
     hqFull: "Render over the game",
     queues: "Production panel",
+    taunts: "Taunts",
     net: "Net readout",
     memory: "Memory readout",
+    sidebar: "Collapse the sidebar",
+    radar: "In-game radar",
   };
 
   /**
@@ -164,6 +178,11 @@
    * actually did was written down nowhere.
    */
   const KEY_NOTES = {
+    radar:
+      "Our own radar, drawn from our own map render, in a panel you can move " +
+      "and resize. It opens over the game's own radar, shows what your shroud " +
+      "reveals and nothing it does not, and is a toggle — the match carries on " +
+      "underneath.",
     overlay:
       "The roster, the map's facts and its guide over the running match, with " +
       "the map preview on the radar. A toggle — the game carries on underneath.",
@@ -194,6 +213,23 @@
       "first item has got. A queue with nothing in it says so, which the " +
       "sidebar cannot: it only ever draws the tab you are looking at. Drag it " +
       "anywhere; where you leave it is where it opens next time.",
+    taunts:
+      "The game's eight taunts as a grid under the cursor, on the same block of " +
+      "keys as the build chords. A key sends one and closes the grid. Each tile " +
+      "carries what the taunt says, under a strip naming the country you drew " +
+      "and its flag: the eight lines are per country, so the same key means " +
+      "something else in the next match. Each tile " +
+      "also carries the key the *game* has on that taunt — as it ships, F5 to " +
+      "F12, of which the browser keeps F11 and F12 for itself — and clicking " +
+      "that key, or right-clicking the tile, binds a new one in the game's own " +
+      "keyboard file, so it works with nothing of ours open. Taunts are sent to " +
+      "other players only, on a five-second cooldown, and the sounds are the " +
+      "ones your client imported: a tile whose file is missing is struck " +
+      "through, because it is sent and heard by everyone except you. A line too " +
+      "long for its tile is cut, and hovering the tile shows the rest without " +
+      "the tile changing size. The settings page draws the same tiles, over a " +
+      "row of countries so any country's eight can be read — and each of them " +
+      "has a play button, which is the only way to hear one outside a match.",
     net:
       "Ping to the game server, how long your own orders take to come back, " +
       "frames per second, and the lockstep's turn length — the numbers behind " +
@@ -214,6 +250,18 @@
       "`__cdc.memTrace()` in the console. The graphics figures are an estimate " +
       "of what was uploaded, not a reading from the driver; their shape over a " +
       "match is what means something, not their exact value.",
+    sidebar:
+      "Hides the game's own right-hand sidebar — the cameos, the four tabs, " +
+      "the radar, the credits and the repair, sell, diplomacy and options " +
+      "buttons — and keeps the power bar, moved flush against the right edge " +
+      "of the screen instead of floating where the sidebar used to start. The " +
+      "game view widens into the strip that frees up, and the camera can pan " +
+      "to the map edge that widening reveals. Everything the sidebar does has " +
+      "a key of its own by now — the tabs, the cameos, the queues, the " +
+      "cancels — except the power reading, which is why that is the part that " +
+      "stays. The setting is remembered, so a match starts the way you left " +
+      "it; the game's own in-game menu brings the sidebar back for as long as " +
+      "it is open, because that menu is drawn inside it.",
   };
 
   /**
@@ -248,6 +296,12 @@
   // and a tab switch here is not news for the game.
   const TAB_ITEM = "cdc.tab";
 
+  // Which country's taunts the editor is reading. Page furniture like the tab
+  // above and stored the same way: it changes nothing about the layout, which
+  // is one layout for every country, and a running game reads its own country
+  // off the match rather than off this.
+  const TAUNT_COUNTRY_ITEM = "cdc.tauntCountry";
+
   let maps = {};
   let renders = {};
   let guides = {};
@@ -263,6 +317,9 @@
   // src/build-chords.js ships, which is what makes a fresh install useful
   // without visiting this panel at all.
   let chords = {};
+  // slot -> taunt number, the taunt overlay's layout overrides. Same shape and
+  // same reasoning as `chords` above, with no side to key it by.
+  let taunts = {};
   // [{ command, key }], keys of ours that fire commands of the client's.
   // Written here and read by the game tab, exactly as `builds` above — and the
   // list they are chosen from, `commands` below, comes back the other way for
@@ -287,6 +344,11 @@
   // page, not a setting, and it starts on the side that already has bindings.
   let buildSide = "";
   let prefs = { ...DEFAULT_PREFS };
+  // What a render looks like. Its own storage item, not a corner of `prefs`:
+  // a preference is a yes or a no about behaviour, and this is a table the
+  // renderer reads. Keeping them apart is also what lets storage.onChanged tell
+  // "repaint every picture" from "a checkbox moved".
+  let appearance = {};
   // map key -> "ours" | "original", the cards that were told which preview to
   // show. A key that is not in here follows `prefs.preferHqPreview`, which is
   // what the *default* button on a card puts it back to. Its own item rather
@@ -1552,6 +1614,413 @@
     });
   }
 
+  // --- Taunts ---------------------------------------------------------------
+
+  /**
+   * Which taunt sits on which key of the overlay.
+   *
+   * The build chords' editor with one dimension removed: there is no side and
+   * no section, because a taunt is the same taunt whatever country you drew and
+   * there are eight of them in one block. Stored the same way — overrides by
+   * slot index over what `src/build-chords.js` ships — so a layout nobody has
+   * touched follows a corrected default, and the game tab reads it through the
+   * same bridge push the chords travel on.
+   *
+   * The keys of the *game's* own taunt commands are not here and cannot be: the
+   * client's hotkey table lives in its origin-private file system, which only
+   * the game tab can reach. The overlay is where that binding is shown and
+   * changed, which is also where a player is when they want it.
+   */
+  let tauntSlot = -1;
+  // The country last read here, restored across reloads. A name this build no
+  // longer knows is corrected by currentTauntCountry, not guarded here.
+  let tauntCountry = (() => {
+    try {
+      return localStorage.getItem(TAUNT_COUNTRY_ITEM) || "";
+    } catch (e) {
+      console.warn("[taunts] could not read the remembered country", e);
+      return "";
+    }
+  })();
+
+  function tauntRows() {
+    return chordTables ? chordTables.tauntLayout(taunts) : [];
+  }
+
+  function setTauntSlot(slot, value) {
+    if (!chordTables) return;
+    const next = chordTables.tauntOverride(taunts, slot, value);
+    taunts = Object.keys(next).length ? next : {};
+    chrome.storage.local.set({ taunts }, renderTaunts);
+  }
+
+  /**
+   * Which country the editor is reading, kept inside the table's own list.
+   *
+   * A stored name that no longer exists — a hand-edited value, or a country a
+   * later client drops — falls back to the first rather than drawing a grid of
+   * empty tiles that look like a broken page.
+   */
+  function tauntCountries() {
+    // The tables' own list, which is the countries that *have* taunt sounds —
+    // not every country the client can draw. Offering one without sounds is
+    // how the play button came to vanish with nothing said.
+    return chordTables ? chordTables.tauntCountries() : [];
+  }
+
+  function currentTauntCountry() {
+    const all = tauntCountries();
+    if (!all.length) return "";
+    if (!all.includes(tauntCountry)) tauntCountry = all[0];
+    return tauntCountry;
+  }
+
+  /**
+   * The country picker: a row of toggles over the grid, the same control the
+   * build list's side tabs are, because it does the same thing — it changes
+   * what the panel below is *about* without changing anything it edits.
+   */
+  function renderTauntCountries() {
+    if (!tauntCountriesEl || !chordTables) return;
+    tauntCountriesEl.textContent = "";
+    const current = currentTauntCountry();
+    for (const name of tauntCountries()) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tauntside" + (name === current ? " on" : "");
+      button.setAttribute("aria-pressed", name === current ? "true" : "false");
+      button.textContent = chordTables.countryLabel(name);
+      button.addEventListener("click", () => {
+        tauntCountry = name;
+        // Page furniture, so localStorage: see TAUNT_COUNTRY_ITEM.
+        try {
+          localStorage.setItem(TAUNT_COUNTRY_ITEM, name);
+        } catch (e) {
+          // A browser with storage denied still gets a working picker; it just
+          // forgets the choice on reload.
+          console.warn("[taunts] could not remember the country", e);
+        }
+        renderTaunts();
+      });
+      tauntCountriesEl.append(button);
+    }
+  }
+
+  // --- auditioning one ------------------------------------------------------
+
+  /**
+   * Play a taunt on this page.
+   *
+   * The sound is not ours and is not here: the files are the player's own RA2
+   * import, they live in the client's **origin-private file system**, and that
+   * is per origin — this page cannot open it at all. So the fetch is a round
+   * trip through a game tab, on the `tauntWav` storage item, exactly as the
+   * settings backup reads the client's `keyboard.ini`. `ensureGameTab` is what
+   * gets one listening when nothing is.
+   *
+   * Answers are kept for the session: a data URL is the whole file, the file
+   * cannot change under a running browser, and an audition is something you do
+   * eight times in a row.
+   */
+  const tauntWavs = new Map(); // file -> data URL, or "" for one this install has not got
+  const tauntWhy = new Map(); // and, for those, what the game tab said about it
+  let tauntWanted = "";
+  let tauntAudio = null;
+
+  function tauntSay(text) {
+    if (tauntNoteEl) tauntNoteEl.textContent = text;
+  }
+
+  function playTauntUrl(file, url) {
+    if (tauntAudio) {
+      tauntAudio.pause();
+      tauntAudio = null;
+    }
+    tauntAudio = new Audio(url);
+    tauntAudio.addEventListener("ended", () => renderTauntGrid());
+    tauntAudio.play().then(
+      () => tauntSay(`playing ${file}`),
+      (e) => {
+        // Autoplay policy, a codec the browser will not take, a truncated
+        // import: all three land here and all three are worth naming.
+        tauntSay(`could not play ${file} — ${(e && e.message) || e}`);
+        tauntAudio = null;
+        renderTauntGrid();
+      }
+    );
+    renderTauntGrid();
+  }
+
+  function auditionTaunt(value) {
+    if (!chordTables) return;
+    const file = chordTables.tauntFileName(currentTauntCountry(), value);
+    if (!file) {
+      // Unreachable while the picker is bounded by the same table the file name
+      // comes from, and left in because that is one table away from not being
+      // true: a country with no sounds must say so, never draw nothing.
+      tauntSay(
+        `this client has no taunt sounds for ${chordTables.countryLabel(currentTauntCountry())} — ` +
+          "Red Alert 2 has files for nine countries"
+      );
+      return;
+    }
+    if (tauntWavs.has(file)) {
+      const url = tauntWavs.get(file);
+      if (url) playTauntUrl(file, url);
+      else tauntSay(tauntWhy.get(file) || `${file} is not in your client's Taunts folder — nothing to play`);
+      return;
+    }
+    tauntWanted = file;
+    tauntSay(`fetching ${file} — the game client has to finish loading its files first…`);
+    chrome.storage.local.set({ tauntWav: { at: Date.now(), requested: file, done: false } });
+    renderTauntGrid();
+    ensureGameTab({
+      say: tauntSay,
+      started: () => !!(lastTauntWavJob && lastTauntWavJob.started),
+      // There is no half-way here either: a tab has taken the job or it has not.
+      progressing: () => !!(lastTauntWavJob && lastTauntWavJob.started),
+      gaveUp: () => {
+        tauntWanted = "";
+        renderTauntGrid();
+      },
+    });
+  }
+
+  let lastTauntWavJob = null;
+
+  function onTauntWavJob(job) {
+    lastTauntWavJob = job || null;
+    if (!job || !job.done) return;
+    // This page emptying the item, arriving back through `storage.onChanged`
+    // like any other write. Without the flag it re-enters as an answer with no
+    // payload and overwrites the cached data URL with "" — which draws the
+    // tile's play button as a file this install has not got, the moment the
+    // sound finishes. Reported as "the cross stays up after it plays".
+    if (job.cleared) return;
+    const file = job.file || "";
+    if (!job.ok) {
+      tauntSay(`could not read ${file} — ${job.error || "the game tab gave no reason"}`);
+      tauntWanted = "";
+      renderTauntGrid();
+      return;
+    }
+    // A miss is remembered as a miss: an install without the folder will not
+    // grow one while the page is open, and asking again on every click would
+    // open a game tab every time.
+    tauntWavs.set(file, job.missing ? "" : job.wav || "");
+    if (job.missing) tauntWhy.set(file, `nothing to play — ${job.why || "the game tab did not say why"}`);
+    // The bytes are the largest thing this extension puts in storage; once they
+    // are in this page they have no business staying on disk. `cleared` is what
+    // stops this write coming back around as an answer — see the top.
+    if (job.wav) chrome.storage.local.set({ tauntWav: { ...job, wav: "", cleared: true } });
+    const wanted = tauntWanted === file;
+    tauntWanted = "";
+    if (job.missing) {
+      // The reason, not just the absence: an install that never imported the
+      // folder and a client that had not finished starting look identical from
+      // here, and they want opposite things done about them.
+      tauntSay(
+        `nothing to play — ${job.why || "the game tab did not say why"}. ` +
+          "The taunt is still sent in a match; you are the only one who hears nothing."
+      );
+      renderTauntGrid();
+      return;
+    }
+    if (wanted) playTauntUrl(file, tauntWavs.get(file));
+    else renderTauntGrid();
+  }
+
+  function renderTauntGrid() {
+    if (!tauntGridEl || !chordTables) return;
+    tauntGridEl.textContent = "";
+    tauntGridEl.style.setProperty("--cols", String(chordTables.GRID_COLS));
+    const country = currentTauntCountry();
+    const clipped = [];
+    tauntRows().forEach((value, slot) => {
+      // A `<div role="button">` and not a `<button>`, because this one *holds*
+      // a button: the play control inside it is a real control with its own
+      // press, and a button inside a button is not markup any parser will keep.
+      // Everything a button gave — the look, the pointer, the pressed state,
+      // Enter and Space — is here explicitly; the build grid's cells have no
+      // control in them and stay `<button>`.
+      const cell = document.createElement("div");
+      cell.setAttribute("role", "button");
+      cell.tabIndex = 0;
+      cell.className = "chordcell" + (slot === tauntSlot ? " on" : "") + (value ? "" : " empty");
+      cell.setAttribute("aria-pressed", slot === tauntSlot ? "true" : "false");
+
+      // The rail: the key you press, big and lit, with the taunt's own number
+      // beside it and the play control under them. All three were corner badges
+      // or nothing at all until 1.15.0, and the badges cost the cell an empty
+      // band across its whole top to clear them. In a column of their own they
+      // cost the width they occupy and nothing else.
+      const rail = document.createElement("i");
+      rail.className = "chordrail";
+
+      const key = document.createElement("i");
+      key.className = "chordkey";
+      key.textContent = chordTables.chordKeyLabel(slot);
+      rail.append(key);
+
+      const role = value ? chordTables.tauntRole(value) : "";
+      const line = value ? chordTables.tauntLine(country, value) : "";
+      const file = value ? chordTables.tauntFileName(country, value) : "";
+      if (value) {
+        // A taunt is "Taunt 6" in the client's key table and in every message
+        // this extension writes about one. The number is what joins this cell
+        // to those; the words are what a person is actually choosing between.
+        const num = document.createElement("i");
+        num.className = "chordnum";
+        num.textContent = String(value);
+        rail.append(num);
+      }
+
+      // Hearing it. The sound is the player's own imported file and this page
+      // cannot reach it — see auditionTaunt — so this button is also the only
+      // thing that ever learns whether the file is there at all, which is why
+      // it says so rather than just going quiet.
+      if (value) {
+        const heard = file && tauntWavs.has(file) ? tauntWavs.get(file) : null;
+        const waiting = tauntWanted === file;
+        const playing = !!tauntAudio && !tauntAudio.paused && tauntAudio.src === heard;
+        const play = document.createElement("button");
+        play.type = "button";
+        play.className = "chordplay" + (!file || heard === "" ? " missing" : "") + (playing ? " playing" : "");
+        play.dataset.taunt = String(value);
+        play.textContent = waiting ? "\u2026" : !file || heard === "" ? "\u2715" : playing ? "\u25a0" : "\u25b6";
+        play.disabled = waiting;
+        play.title = !file
+          ? `this client has no taunt sounds for ${chordTables.countryLabel(country)}`
+          : heard === ""
+            ? `${file} is not in your client's Taunts folder — the taunt is still sent, you just hear nothing`
+            : `Play ${file}`;
+        play.setAttribute("aria-label", `Play taunt ${value} for ${chordTables.countryLabel(country)}`);
+        // The cell underneath picks this key for editing; a press here is about
+        // the sound and nothing else.
+        play.addEventListener("click", (e) => {
+          e.stopPropagation();
+          auditionTaunt(value);
+        });
+        rail.append(play);
+      }
+      cell.append(rail);
+
+      // The words, inside a box that holds their space. The box is on every
+      // cell, empty ones included — it is what gives a cell its height, and a
+      // cell without one would be shorter than its neighbours, which is the
+      // complaint the 1.14.0 round started from. It is also what the hover
+      // reveal positions against, so the reveal needs no measurement of where
+      // the words happen to start.
+      const words = document.createElement("span");
+      words.className = "chordwords";
+      const label = document.createElement("span");
+      label.className = "chordname" + (value && !line ? " chordrole" : "");
+      label.textContent = value ? line || role : "";
+      words.append(label);
+      cell.append(words);
+      if (value && line) clipped.push(label);
+
+      const named = value ? `Taunt ${value}${role ? " — " + role : ""}` : "empty";
+      if (value) cell.title = named + (line ? `\n"${line}"` : "");
+      cell.setAttribute(
+        "aria-label",
+        `${chordTables.chordKeyLabel(slot)} — ${named}${line ? ". " + line : ""}. ` +
+          "Choose which taunt this key sends."
+      );
+
+      const pick = () => {
+        tauntSlot = slot;
+        renderTaunts();
+      };
+      cell.addEventListener("click", pick);
+      // What `<button>` did for free. Space is prevented as well as handled:
+      // on a focused non-button it scrolls the page.
+      cell.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        pick();
+      });
+      tauntGridEl.append(cell);
+    });
+    // Which lines the three-line clamp cut, and therefore which cells have
+    // something left to show on hover. Measured once here, after every cell is
+    // in the document — a read per cell during the build would force a layout
+    // fifteen times.
+    for (const label of clipped) {
+      label.classList.toggle("clipped", label.scrollHeight > label.clientHeight + 1);
+    }
+  }
+
+  function renderTauntPicker() {
+    if (!tauntPickEl || !chordTables) return;
+    const rows = tauntRows();
+    const current = tauntSlot >= 0 ? rows[tauntSlot] : null;
+    const chosen = tauntSlot >= 0;
+
+    tauntPickEl.textContent = "";
+    tauntPickEl.disabled = !chosen;
+    tauntClearEl.disabled = !chosen || !current;
+    tauntSlotNameEl.textContent = chosen
+      ? `Key ${chordTables.chordKeyLabel(tauntSlot)}`
+      : "Pick a key above to change which taunt is on it.";
+
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = chosen ? "— nothing on this key —" : "—";
+    tauntPickEl.append(blank);
+    if (!chosen) return;
+
+    for (let n = 1; n <= chordTables.TAUNT_COUNT; n++) {
+      const option = document.createElement("option");
+      option.value = String(n);
+      // The key a taunt is already on, named in its own row: eight taunts over
+      // fifteen keys is a layout you rearrange rather than fill, and picking
+      // one that is elsewhere **swaps** the two keys (`chordPlace`). Saying
+      // where it is now is what makes that a move rather than a surprise.
+      const at = rows.indexOf(n);
+      const where = at >= 0 && at !== tauntSlot ? ` (now on ${chordTables.chordKeyLabel(at)})` : "";
+      const role = chordTables.tauntRole(n);
+      option.textContent = `Taunt ${n}${role ? " — " + role : ""}${where}`;
+      option.selected = current === n;
+      tauntPickEl.append(option);
+    }
+  }
+
+  function renderTaunts() {
+    if (!tauntGridEl) return;
+    if (!chordTables) {
+      tauntGridEl.textContent = "";
+      const missing = document.createElement("p");
+      missing.className = "count";
+      missing.textContent = "build-chords.js did not load — the taunt layout cannot be shown.";
+      tauntGridEl.append(missing);
+      return;
+    }
+    renderTauntCountries();
+    renderTauntGrid();
+    renderTauntPicker();
+  }
+
+  if (tauntPickEl) {
+    tauntPickEl.addEventListener("change", () => {
+      if (tauntSlot < 0) return;
+      setTauntSlot(tauntSlot, Number(tauntPickEl.value) || null);
+    });
+  }
+  if (tauntClearEl) {
+    tauntClearEl.addEventListener("click", () => {
+      if (tauntSlot < 0) return;
+      setTauntSlot(tauntSlot, null);
+    });
+  }
+  if (tauntResetEl) {
+    tauntResetEl.addEventListener("click", () => {
+      taunts = {};
+      tauntSlot = -1;
+      chrome.storage.local.set({ taunts }, renderTaunts);
+    });
+  }
+
   // --- tabs -----------------------------------------------------------------
 
   // ladder type -> its panel. Built from LADDERS, so the tab strip, the panels
@@ -1921,6 +2390,181 @@
    * tab's `recolourPlan` is the half that guarantees it; this is the half that
    * has to describe it.
    */
+  // --- Map rendering ---
+  //
+  // The dials that decide what a render looks like. Two families with two very
+  // different prices, and the panel is built to make the price visible: the
+  // colours and the global pair are filters over a finished picture and cost
+  // nothing, while the per-type pairs are baked and only reach a stored map
+  // when that map is rendered again.
+  //
+  // The shape, the defaults and the clamps all live in src/render-tune.js, the
+  // one copy this page, the renderer, the radar and the in-game panel share.
+  // Nothing here invents a value.
+
+  const tuneEls = {
+    ore: document.getElementById("tuneOre"),
+    gems: document.getElementById("tuneGems"),
+    oreAlpha: document.getElementById("tuneOreAlpha"),
+    shroudDim: document.getElementById("tuneShroudDim"),
+    unitSize: document.getElementById("tuneUnitSize"),
+    unitBrightness: document.getElementById("tuneUnitBrightness"),
+    allBrightness: document.getElementById("tuneAllBrightness"),
+    allContrast: document.getElementById("tuneAllContrast"),
+    types: document.getElementById("tuneTypes"),
+    stale: document.getElementById("tuneStale"),
+    reset: document.getElementById("tuneReset"),
+  };
+
+  /** The table in force, normalised — never the raw stored object. */
+  const look = () => (window.__cdcTune ? window.__cdcTune.normalise(appearance) : null);
+
+  function setAppearance(patch) {
+    appearance = { ...look(), ...patch };
+    renderTunePanel();
+    applyGlobalFilter();
+    chrome.storage.local.set({ appearance });
+  }
+
+  /** One type's pair, merged rather than replaced, so the other dial survives. */
+  function setTypeDial(type, patch) {
+    const current = look();
+    setAppearance({ types: { ...current.types, [type]: { ...current.types[type], ...patch } } });
+  }
+
+  /**
+   * The global pair, as a filter over the pictures this page shows.
+   *
+   * A custom property on the root rather than a style per image: the cards are
+   * rebuilt on every filter keystroke and the viewer is built on demand, so
+   * anything set per element would have to be re-set in both places.
+   */
+  function applyGlobalFilter() {
+    if (!window.__cdcTune) return;
+    document.documentElement.style.setProperty("--cdc-render-filter", window.__cdcTune.globalFilter(appearance));
+  }
+
+  /**
+   * The per-type rows, built once and then held.
+   *
+   * References rather than a re-query on every sync: these rows are made here,
+   * so looking them up by class afterwards would be asking the document for
+   * something this function already has -- and it would put a class name in a
+   * querySelector that the markup does not carry, which is exactly what
+   * scripts/check-options.mjs exists to catch.
+   */
+  let tuneRows = null;
+
+  function buildTuneRows(tune) {
+    tuneRows = tune.TUNE_TYPES.map((entry) => {
+      const row = document.createElement("div");
+      row.className = "setrow tune-type-row";
+      const label = document.createElement("span");
+      label.className = "tune-type-label";
+      label.textContent = entry.label;
+      row.append(label);
+
+      const dials = {};
+      for (const dial of ["brightness", "contrast"]) {
+        const input = document.createElement("input");
+        input.type = "range";
+        input.className = "tune-dial";
+        input.min = tune.LIMITS[dial][0];
+        input.max = tune.LIMITS[dial][1];
+        input.step = "0.05";
+        input.title = entry.label + " " + dial;
+        const out = document.createElement("output");
+        out.className = "tune-out";
+        input.addEventListener("input", () => setTypeDial(entry.key, { [dial]: Number(input.value) }));
+        row.append(input, out);
+        dials[dial] = { input, out };
+      }
+      tuneEls.types.append(row);
+      return { key: entry.key, dials };
+    });
+  }
+
+  function renderTunePanel() {
+    const tune = window.__cdcTune;
+    // The table is a separate script. If it did not load, the dials have no
+    // defaults to fall back on and a half-drawn panel would write values the
+    // renderer never agreed to, so the whole section stands down.
+    if (!tune || !tuneEls.types) return;
+    const current = tune.normalise(appearance);
+
+    // Built from TUNE_TYPES rather than written out in the markup, for the
+    // reason the recolour rows are: the list has to be the render's own or a
+    // dial can name a pass that does not exist.
+    if (!tuneRows) buildTuneRows(tune);
+
+    tuneEls.ore.value = current.ore;
+    tuneEls.gems.value = current.gems;
+    setDial(tuneEls.oreAlpha, "tuneOreAlphaOut", current.oreAlpha);
+    setDial(tuneEls.shroudDim, "tuneShroudDimOut", current.shroudDim);
+    setDial(tuneEls.unitSize, "tuneUnitSizeOut", current.units.size);
+    setDial(tuneEls.unitBrightness, "tuneUnitBrightnessOut", current.units.brightness);
+    setDial(tuneEls.allBrightness, "tuneAllBrightnessOut", current.all.brightness);
+    setDial(tuneEls.allContrast, "tuneAllContrastOut", current.all.contrast);
+
+    for (const row of tuneRows) {
+      const pair = current.types[row.key];
+      for (const dial of ["brightness", "contrast"]) {
+        row.dials[dial].input.value = pair[dial];
+        row.dials[dial].out.textContent = fmtDial(pair[dial]);
+      }
+    }
+
+    // Honest about the price rather than silent about it. The per-type dials are
+    // baked, so a map already stored keeps the look it was drawn with until it
+    // is rendered again — there is no way to apply them to a finished PNG.
+    tuneEls.stale.textContent =
+      tune.tuneKey(appearance) === ""
+        ? ""
+        : "Stored renders keep the look they were drawn with. A map picks these up when it is next rendered.";
+  }
+
+  /** A dial reads better as 1.00 than as 0.9500000000000001. */
+  const fmtDial = (v) => v.toFixed(2);
+
+  function setDial(input, outId, value) {
+    if (!input) return;
+    input.value = value;
+    const out = document.getElementById(outId);
+    if (out) out.textContent = fmtDial(value);
+  }
+
+  if (tuneEls.ore) {
+    // `input` rather than `change` on the colour wells and sliders: this is a
+    // panel you drag while looking at the result, and `change` on a range only
+    // fires when the mouse comes up.
+    tuneEls.ore.addEventListener("input", () => setAppearance({ ore: tuneEls.ore.value }));
+    tuneEls.gems.addEventListener("input", () => setAppearance({ gems: tuneEls.gems.value }));
+    tuneEls.oreAlpha.addEventListener("input", () => setAppearance({ oreAlpha: Number(tuneEls.oreAlpha.value) }));
+    tuneEls.shroudDim.addEventListener("input", () => setAppearance({ shroudDim: Number(tuneEls.shroudDim.value) }));
+    // `change` rather than `input`: a checkbox has no drag to follow, and the
+    // two fire together on it anyway.
+    // Merged rather than replaced, the way the global pair beside it is: the two
+    // dials share one object and writing one alone would drop the other.
+    tuneEls.unitSize.addEventListener("input", () =>
+      setAppearance({ units: { ...look().units, size: Number(tuneEls.unitSize.value) } })
+    );
+    tuneEls.unitBrightness.addEventListener("input", () =>
+      setAppearance({ units: { ...look().units, brightness: Number(tuneEls.unitBrightness.value) } })
+    );
+    tuneEls.allBrightness.addEventListener("input", () =>
+      setAppearance({ all: { ...look().all, brightness: Number(tuneEls.allBrightness.value) } })
+    );
+    tuneEls.allContrast.addEventListener("input", () =>
+      setAppearance({ all: { ...look().all, contrast: Number(tuneEls.allContrast.value) } })
+    );
+    tuneEls.reset.addEventListener("click", () => {
+      appearance = {};
+      renderTunePanel();
+      applyGlobalFilter();
+      chrome.storage.local.set({ appearance });
+    });
+  }
+
   function renderRecolour() {
     const current = recolourPrefs();
     prefRecolourEl.checked = current.on;
@@ -3720,6 +4364,8 @@ The card and its render go. The guide is kept.`)) return;
   // speed has two different clocks, and only such a report offers the choice.
   let replayClock = "real";
   let replayUrl = ""; // where the report on screen came from, so it can be re-run
+  let replaySourceNote = ""; // how a report that came from a file got here, for its header
+  let replayFileText = ""; // the file itself, when no host serves it — what a re-run is handed
 
   /**
    * Whether losses share the timeline with the build order.
@@ -4076,6 +4722,8 @@ The card and its render go. The guide is kept.`)) return;
       replayReport = REPLAY.analyze(replay);
       replayMatchRow = match;
       replayUrl = found.url;
+      replaySourceNote = ""; // fetched, not handed over -- and a file may have left one
+      replayFileText = ""; // nor is there a file to hand a re-run
       showReplay();
       rememberReplay(found);
       renderReplayList(); // the row that is open is marked as such
@@ -4087,6 +4735,151 @@ The card and its render go. The guide is kept.`)) return;
       replayEmptyEl.hidden = false;
       replayEmptyEl.textContent = "Nothing was read. The message above says why.";
     }
+  }
+
+  /**
+   * How big a file this page will try to read.
+   *
+   * A ladder replay is 50-150 KB and an exported report a little more; anything
+   * of a different order is neither, and reading it would be a hung tab rather
+   * than an error. The same guard the site's own drop carries.
+   */
+  const REPLAY_FILE_MAX = 25 * 1024 * 1024;
+
+  /**
+   * Which realm still serves this match, or none.
+   *
+   * A `.rpl` states its own game id on its header line and a replay host names a
+   * file by exactly that id, so a file off disk can be matched back to the match
+   * it recorded without asking the user which realm they play. Both are asked
+   * because the id does not say.
+   *
+   * Measured 2026-08-31 ([[cd-power-and-production]]): a real EU game answers
+   * `HEAD` 200 on `replays-eu` and 404 on `replays-sea`, and an id that is not a
+   * game 404s on both -- so a miss is clean and the realm falls out of which one
+   * answered. `HEAD`, so the ask costs a round trip and not a replay.
+   *
+   * Only the extension can ask at all: the hosts send no
+   * `Access-Control-Allow-Origin`, and the host permission is what stands in for
+   * one. The site, which has no such permission, is why the report renderer
+   * takes a report and never a URL.
+   *
+   * **A network that is not there answers nothing rather than "no".** A throw is
+   * treated as a miss, because all this decides is whether the re-run is offered
+   * -- the report is drawn either way, and a failed probe must not look like a
+   * failed read.
+   */
+  async function findReplayOnline(gameId) {
+    if (!gameId || !REPLAY) return null;
+    for (const realm of Object.keys(REPLAY.REPLAY_HOSTS)) {
+      const url = `${REPLAY.REPLAY_HOSTS[realm]}/${gameId}.rpl`;
+      try {
+        const response = await fetch(url, { method: "HEAD" });
+        if (response.ok) return { url, gameId, realm };
+      } catch (e) {
+        console.warn("[cd-companion/options] could not ask the replay host about", url, e);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A replay or a report that arrived as text rather than as a URL.
+   *
+   * Told apart by content and not by name, the way the site's drop already does
+   * it: a browser renames a download the moment there are two of them
+   * (`x (1).rpl`), and a report saved as `report.txt` is still a report. A
+   * replay's first line is its header; JSON starts with a brace.
+   *
+   * **The match-back is what makes this more than a viewer.** A dropped replay
+   * carries its own game id, so the probe above turns it back into the URL the
+   * client would be booted with -- and Run the match, Export and the remembered
+   * list then work on it exactly as on a fetched replay, because all three read
+   * `replayOpen` and `replayUrl` and cannot tell where the report came from. A
+   * file the hosts no longer serve is still a whole report; it loses the re-run
+   * alone, and the status line says which of the two happened rather than
+   * leaving a disabled button to be guessed at.
+   *
+   * The report is drawn **before** the hosts are asked. The parse is local and
+   * instant, the probe is two round trips, and making the reader wait on the
+   * network for a file it already holds would be the one thing reading from
+   * disk was meant to avoid.
+   */
+  async function openReplayText(text, name) {
+    if (!REPLAY || !VIEW) {
+      replayNote(`${REPLAY ? "replay-view.js" : "replay.js"} did not load -- nothing can be read`, true);
+      return;
+    }
+    let report;
+    let source;
+    try {
+      if (text.trimStart().startsWith("{")) {
+        const imported = REPLAY.importReport(text);
+        report = imported.report;
+        source = ["exported report", imported.extension ? `companion ${imported.extension}` : "", imported.exportedAt ? VIEW.REPLAY_DATE.format(imported.exportedAt) : ""]
+          .filter(Boolean)
+          .join(" - ");
+      } else {
+        report = REPLAY.analyze(REPLAY.parse(text));
+        source = `from ${name}`;
+      }
+    } catch (e) {
+      console.warn("[cd-companion/options] could not read that file", e);
+      replayNote(`could not read ${name}: ${e.message}`, true);
+      replayEmptyEl.hidden = false;
+      replayEmptyEl.textContent = "Nothing was read. The message above says why.";
+      return;
+    }
+    replayReport = report;
+    replaySourceNote = source;
+    replayMatchRow = null;
+    replayOpen = report.gameId || "";
+    replayUrl = "";
+    // Kept only for a `.rpl`. An exported report is a report and not a replay:
+    // the client cannot play one, and handing it over would be handing the
+    // client JSON where it asked for a match.
+    replayFileText = text.trimStart().startsWith("{") ? "" : text;
+    showReplay();
+    replayNote(`${name} -- read here on your machine. Asking the hosts whether the match is still there...`);
+
+    const asked = replayOpen;
+    const found = await findReplayOnline(asked);
+    // The panel may have moved on while the hosts were being asked -- a second
+    // file opened, a URL pasted -- and this answer is about the report that was
+    // read, not about whatever is on screen now.
+    if (replayOpen !== asked || replayReport !== report) return;
+    if (!found) {
+      replayNote(`${name} -- read. Neither host serves this match any more, so it cannot be re-run.`);
+      return;
+    }
+    replayUrl = found.url;
+    rememberReplay(found);
+    renderReplayList(); // the row that is open is marked as such
+    renderRecents();
+    syncSimButton(); // there is a URL now, so the re-run is on offer
+    replayNote(`${name} -- read, and the ${found.realm} host still has this match, so it can be re-run.`);
+  }
+
+  /**
+   * The same, out of a file the user picked or let go on the panel.
+   *
+   * `file.text()` rather than a `FileReader`, which is what this page already
+   * uses for a settings backup -- one way of reading a file per page.
+   */
+  function openReplayFile(file) {
+    if (!file) return;
+    if (file.size > REPLAY_FILE_MAX) {
+      replayNote(`${file.name} is ${Math.round(file.size / 1024 / 1024)} MB -- that is not a replay`, true);
+      return;
+    }
+    replayNote(`reading ${file.name}...`);
+    file.text().then(
+      (text) => openReplayText(text, file.name),
+      (e) => {
+        console.warn("[cd-companion/options] the browser could not read the file", e);
+        replayNote(`the browser could not read ${file.name}: ${(e && e.message) || e}`, true);
+      }
+    );
   }
 
   /**
@@ -4181,11 +4974,14 @@ The card and its render go. The guide is kept.`)) return;
         },
         // The one fact the panel knows and the file does not: the ladder's own
         // row states the result from the point of view of the name that was
-        // typed, and a report opened by pasting a URL has no such row.
+        // typed, and a report opened by pasting a URL has no such row. A report
+        // that came off disk has no row either and has something else to say --
+        // which file it was, or that it is an export somebody else's copy of
+        // this extension wrote and when.
         note:
           replayMatchRow && replayMatchRow.result
             ? `${replayMatchRow.result} for ${replayPlayerEl.value.trim()}`
-            : "",
+            : replaySourceNote,
       })
     );
     syncSimButton();
@@ -4303,7 +5099,12 @@ The card and its render go. The guide is kept.`)) return;
 
   function syncSimButton() {
     const has = !!(replayOpen && sims[replayOpen]);
-    replaySimEl.disabled = !replayOpen || !REPLAY || simRunning();
+    // **A URL, not only a report.** A re-run boots the client at
+    // `#/replay/<url>` and the client fetches it there, so a report read off
+    // disk whose match the hosts no longer serve has nothing to point the tab
+    // at. It draws, exports and remembers like any other; it cannot be re-run,
+    // and the title below is where that is said.
+    replaySimEl.disabled = !replayOpen || (!replayUrl && !replayFileText) || !REPLAY || simRunning();
     if (simRunning()) {
       // Two states, and they used to read the same: a run whose client is still
       // booting has no ticks, and `re-running… 0%` said nothing about which of
@@ -4315,10 +5116,17 @@ The card and its render go. The guide is kept.`)) return;
     }
     // A report with nothing in it is not worth a file; anything on screen is.
     replayExportEl.disabled = !replayReport;
-    replaySimEl.title = has
-      ? "Play this replay through again and read the counters afresh. The stored result is replaced."
-      : "Play this replay through in a game tab and read what the file cannot state — losses, kills and credits. " +
-        "Takes a few seconds per match; the tab is opened for it and closed after.";
+    replaySimEl.title =
+      replayOpen && !replayUrl && replayFileText
+        ? "Neither replay host serves this match any more, so the game tab is handed the file you opened " +
+          "instead of fetching it. Everything else about the run is the same."
+        : replayOpen && !replayUrl
+        ? "This report was exported rather than recorded, so there is no replay to play through — a report " +
+          "is what a run produces, not what it takes. Everything it states is already on screen."
+        : has
+          ? "Play this replay through again and read the counters afresh. The stored result is replaced."
+          : "Play this replay through in a game tab and read what the file cannot state — losses, kills and credits. " +
+            "Takes a few seconds per match; the tab is opened for it and closed after.";
     // Last, and unconditional: it keeps the button re-reading itself while a run
     // is going, and writes off one that has stopped answering.
     watchSim();
@@ -4353,8 +5161,25 @@ The card and its render go. The guide is kept.`)) return;
   }
 
   function askForSim() {
-    if (!replayOpen || !replayUrl) return;
+    if (!replayOpen || (!replayUrl && !replayFileText)) return;
     const gameId = replayOpen;
+    /**
+     * Where the game tab is pointed, and what it is handed when it gets there.
+     *
+     * A match the hosts still serve is a URL and nothing else — the client
+     * fetches it itself, as it always has. A `.rpl` off disk whose match they no
+     * longer serve is pointed at **the URL it would have had**, and the bytes
+     * are handed over in the tab (src/replay-sim.js `answerReplayFetch`).
+     *
+     * The sentinel is that URL rather than something invented, because the
+     * client checks the hostname against `replaysUrlWhitelist` before it fetches
+     * anything: a URL off `.chronodivide.com` is refused by the client itself,
+     * whatever answers it. So the route and the check are left exactly as they
+     * are and only the answer comes from somewhere else.
+     */
+    const found = replayUrl ? { url: replayUrl } : REPLAY.locate(gameId, replayRealmEl.value);
+    if (!found) return;
+    const url = found.url;
     // The debug pace, in game ticks a second: empty leaves the run to its own
     // rule (paced over a long match, flat out under it), 0 is flat out whatever
     // the length. It travels with the job so the tab doing the work needs no
@@ -4362,7 +5187,10 @@ The card and its render go. The guide is kept.`)) return;
     const typed = replayPaceEl.value.trim();
     const pace = typed === "" ? null : Math.max(0, Math.min(5000, Number(typed) || 0));
     chrome.storage.local.set({
-      sim: { at: Date.now(), requested: true, gameId, url: replayUrl, pace },
+      // The text rides with the job only when there is nothing to fetch. It is
+      // 50-150 KB and the extension holds `unlimitedStorage`, but a copy of
+      // every replay ever opened would still be a copy nobody asked for.
+      sim: { at: Date.now(), requested: true, gameId, url, pace, text: replayUrl ? null : replayFileText },
       replayPace: typed,
     });
     replayNote(
@@ -4373,7 +5201,7 @@ The card and its render go. The guide is kept.`)) return;
     );
     syncSimButton();
     chrome.runtime.sendMessage(
-      { type: "open-game-tab", url: "https://game.chronodivide.com/#/replay/" + encodeURIComponent(replayUrl) },
+      { type: "open-game-tab", url: "https://game.chronodivide.com/#/replay/" + encodeURIComponent(url) },
       (answer) => {
         const failed =
           (chrome.runtime.lastError && chrome.runtime.lastError.message) ||
@@ -4441,7 +5269,7 @@ The card and its render go. The guide is kept.`)) return;
    * file into a disk image.
    */
   const BACKUP_ITEMS = {
-    bindings: ["keys", "builds", "commandKeys", "chords", "prefs"],
+    bindings: ["keys", "builds", "commandKeys", "chords", "taunts", "prefs"],
     // Not the sprite offsets. They were dialled once and are the shipped
     // default now (`SPRITE_FIX` in src/hq-preview.js) — carrying a copy per
     // profile made a measurement look like a preference, and a build without
@@ -4549,6 +5377,7 @@ The card and its render go. The guide is kept.`)) return;
       lines.push(`build hotkeys — ${total} across ${countOf(ext.builds)} side(s)`);
     }
     if (ext.chords) lines.push(`chord layouts — ${countOf(ext.chords)} side(s)`);
+    if (countOf(ext.taunts)) lines.push(`taunt keys — ${countOf(ext.taunts)} moved`);
     if (ext.prefs) lines.push(`extension options — ${countOf(ext.prefs)}`);
     if (countOf(ext.guides)) lines.push(`map guides — ${countOf(ext.guides)}`);
     const marks = countOf(ext.previewSrc) + countOf(ext.spawnFix);
@@ -4971,6 +5800,57 @@ The card and its render go. The guide is kept.`)) return;
   replayInputEl.addEventListener("keydown", (e) => {
     if (e.key === "Enter") openReplay(replayInputEl.value, null);
   });
+  replayFileEl.addEventListener("change", () => {
+    openReplayFile(replayFileEl.files && replayFileEl.files[0]);
+    // Cleared so picking the same file twice fires a change the second time --
+    // otherwise re-opening a file after a failed read does nothing at all.
+    replayFileEl.value = "";
+  });
+
+  /**
+   * A file let go anywhere on the Replays tab, and a file pasted onto it.
+   *
+   * **On the document, gated on the tab.** A drop two pixels outside the input
+   * navigates the browser to the file, which loses the options page and
+   * everything unsaved on it -- so the whole document has to swallow the drop.
+   * It must not swallow one meant for the settings-backup input on another tab,
+   * hence `activeTab`: this page has two file inputs and they belong to
+   * different panels.
+   *
+   * `dragover` is what has to be prevented for a drop to arrive at all; the
+   * browser reads the absence of a preventDefault as "not a drop target here"
+   * and navigates instead.
+   */
+  const onReplaysTab = () => activeTab === "replays";
+  for (const type of ["dragenter", "dragover"]) {
+    document.addEventListener(type, (event) => {
+      if (onReplaysTab()) event.preventDefault();
+    });
+  }
+  document.addEventListener("drop", (event) => {
+    if (!onReplaysTab()) return;
+    event.preventDefault();
+    const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+    if (file) openReplayFile(file);
+  });
+  document.addEventListener("paste", (event) => {
+    if (!onReplaysTab()) return;
+    // Not while the reader is typing into one of this tab's own boxes: a game id
+    // pasted into the link field is a paste, and reading it as a replay would
+    // take the field's own Enter away from it.
+    const into = event.target;
+    if (into && (into.tagName === "INPUT" || into.tagName === "TEXTAREA" || into.isContentEditable)) return;
+    const files = (event.clipboardData && event.clipboardData.files) || [];
+    if (files.length) {
+      openReplayFile(files[0]);
+      return;
+    }
+    // A pasted report is text; a pasted replay is text too -- a `.rpl` is header
+    // lines and base64 and survives a clipboard -- so both are tried, and
+    // anything that is neither is left to whatever else wanted the paste.
+    const text = (event.clipboardData && event.clipboardData.getData("text")) || "";
+    if (text.trimStart().startsWith("{") || /^\s*RA2TSREPL/.test(text)) openReplayText(text, "the clipboard");
+  });
   // The cameo harvest, on the Replays tab because the timeline's pictures are
   // what it feeds. It lived under the sprite-alignment header until 0.78.0,
   // which is a place nobody would look for it: the button is not on that tab,
@@ -5064,6 +5944,7 @@ The card and its render go. The guide is kept.`)) return;
       commandKeys: [],
       commands: {},
       chords: {},
+      taunts: {},
       roster: {},
       colours: {},
       prefs: {},
@@ -5071,6 +5952,7 @@ The card and its render go. The guide is kept.`)) return;
       spawnFix: {},
       spriteFix: {},
       spriteFixByName: {},
+      appearance: {},
       pools: null,
       pool: null,
       bulk: null,
@@ -5106,6 +5988,7 @@ The card and its render go. The guide is kept.`)) return;
       commandKeys = Array.isArray(data.commandKeys) ? data.commandKeys : [];
       commands = data.commands || {};
       chords = migrateChords(data.chords || {});
+      taunts = data.taunts || {};
       roster = data.roster || {};
       colours = data.colours || {};
       // The harvested sheet, on `window` before anything that draws a cameo
@@ -5125,6 +6008,8 @@ The card and its render go. The guide is kept.`)) return;
       installReplayTypes(data.replayTypes, window);
       syncHarvestButton(data.cameos);
       prefs = { ...DEFAULT_PREFS, ...data.prefs };
+      appearance = data.appearance || {};
+      renderTunePanel();
       // One setting used to answer for the game and for this page both. An
       // install that had chosen keeps that choice on both halves rather than
       // having this one snap back to the default the moment they came apart.
@@ -5171,6 +6056,7 @@ The card and its render go. The guide is kept.`)) return;
       renderBuilds();
       renderCommands();
       renderChords();
+      renderTaunts();
       // Before the pools: a run left going in another tab is what decides
       // whether *Render ticked* is available at all.
       renderBulk(data.bulk);
@@ -5196,9 +6082,19 @@ The card and its render go. The guide is kept.`)) return;
       syncPrefsUi();
       paintLightboxIcons();
     }
+    // The in-game panel mirrors these dials over a live radar, so this is how a
+    // slider dragged mid-match reaches the page. Repaints rather than
+    // re-renders: the global pair is a filter and the per-type ones only decide
+    // what the *next* render bakes.
+    if (changes.appearance) {
+      appearance = changes.appearance.newValue || {};
+      renderTunePanel();
+      applyGlobalFilter();
+    }
     // A game tab narrating a run writes this several times a second; repainting
     // a panel nobody is looking at is the one cost worth avoiding here.
     if (changes.settings) renderSettingsJob(changes.settings.newValue);
+    if (changes.tauntWav) onTauntWavJob(changes.tauntWav.newValue);
     if (changes.log) {
       logEntries = changes.log.newValue || [];
       if (activeTab === "log") renderLog();
@@ -5240,6 +6136,10 @@ The card and its render go. The guide is kept.`)) return;
     if (changes.chords) {
       chords = changes.chords.newValue || {};
       renderChords();
+    }
+    if (changes.taunts) {
+      taunts = changes.taunts.newValue || {};
+      renderTaunts();
     }
     if (changes.previewSrc) previewSrc = changes.previewSrc.newValue || {};
     if (changes.spawnFix) spawnFix = changes.spawnFix.newValue || {};

@@ -225,6 +225,221 @@
   display: block;
 }
 
+/* --- The in-game radar -------------------------------------------------------
+   Our own radar, drawn from our own render, as a panel of its own rather than
+   an overlay on the client's: the client's is one colour per tile and one pass,
+   so terrain, shroud and ownership can only partition that one value. A canvas
+   we own can layer them.
+
+   Fixed rather than absolute, like every other box in `.cdc-layer`, and
+   `pointer-events: auto` because unlike the preview overlay this one is
+   clicked. The canvas is sized in device pixels by script and scaled back down
+   here, so a HiDPI display gets a sharp picture instead of a doubled one. */
+.cdc-radar {
+  position: fixed;
+  z-index: 100002;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 224, 0, 0.4);
+  background: rgba(0, 0, 0, 0.72);
+  font: 11px/1.4 "Fira Sans Condensed", "Segoe UI", sans-serif;
+  color: #ffe97a;
+  user-select: none;
+  /* Border-box, like `.cdc-ig-map` above and for the same reason: `makeDraggable`
+     starts a resize from `offsetWidth`/`offsetHeight` and writes the result into
+     `style.width`/`style.height`, so a content-box panel grew by its own border
+     on every drag — measured on 1.17.13, four store-reload round trips with the
+     mouse never moving took a 284px panel to 296px. The two boxes with a grip
+     now measure the same way; `sizeRadarPanel` adds the border back to the
+     height it derives, since what it starts from is the map's. */
+  box-sizing: border-box;
+}
+
+.cdc-radar-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  background: rgba(255, 224, 0, 0.1);
+  cursor: move;
+  white-space: nowrap;
+}
+
+.cdc-radar-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  /* Tabular, because this is the credit count in a match and a proportional
+     digit makes the whole bar twitch every time the number ticks over. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tile under the cursor. Tabular so the numbers do not jostle the title as
+   the cursor moves, and dimmed because it is a readout, not a label. */
+.cdc-radar-at {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.cdc-radar-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Letterboxed by script inside the stage: a stretched radar is unreadable, and
+   a uniform scale is also what keeps the pick buffer to one scale factor. */
+.cdc-radar-canvas {
+  position: absolute;
+  /* A press on it is aimed at a tile, so it says so. Only ever seen with a free
+     mouse: under the lock the client draws its own cursor and we draw ours. */
+  cursor: crosshair;
+  image-rendering: pixelated;
+  display: block;
+}
+
+.cdc-radar-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  opacity: 0.75;
+}
+
+/* The in-game mirror of the appearance dials, in a drawer under the picture.
+
+   Not `<input type=range>`: the client holds a pointer lock for the whole of a
+   match, and under it nothing in the DOM can be dragged, focused or scrolled to.
+   A dial is therefore a track that is *clicked* — the fill says where the value
+   sits, one press anywhere along it sets it, the right button puts it back.
+   `flex: 0 0 auto` so the drawer takes its height from its rows, and the panel
+   is grown by exactly that much: what persists is the stage's height, not the
+   panel's, so `sizeRadarPanel()` adds the drawer on top instead of taking it out
+   of the picture. The stage stays `flex: 1` regardless, because a live grip drag
+   writes the outer box through a helper four panels share.
+
+   Hidden here rather than only by script. `renderRadarDials()` is what sets the
+   display, and `renderRadar()` returns before reaching it on every refusal it
+   has — no map yet, no radar building, terrain still drawing. So a panel opened
+   out of a match showed an empty 10px strip (this padding and the border) under
+   the picture, and `sizeRadarPanel` counted it as chrome that was really there.
+   Measured, 2026-08-28: bar 21, drawer 10 with the drawer shut. */
+.cdc-radar-dials {
+  display: none;
+  flex: 0 0 auto;
+  padding: 4px 6px 5px;
+  border-top: 1px solid rgba(255, 224, 0, 0.25);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.cdc-radar-dials-toggle {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 224, 0, 0.35);
+  border-radius: 2px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.cdc-radar-dials-toggle.cdc-on,
+.cdc-radar-dials-toggle:hover {
+  background: rgba(255, 224, 0, 0.18);
+  opacity: 1;
+}
+
+.cdc-dial {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0;
+  cursor: pointer;
+}
+
+.cdc-dial-label {
+  flex: 0 0 70px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+/* The track keeps its height on a panel dragged to any size: it is aimed at
+   with a mouse the player often cannot see, so a two-pixel target would be a
+   dial nobody can set. */
+.cdc-dial-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 9px;
+  min-width: 40px;
+  border: 1px solid rgba(255, 224, 0, 0.35);
+  background: rgba(255, 224, 0, 0.08);
+}
+
+.cdc-dial-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 224, 0, 0.45);
+}
+
+/* The panel's own scale, and the reason it is not the 14px grip in the corner:
+   in a match the player aims with a cursor the client draws, so a corner is a
+   target to be outlined, and under the pointer lock no DOM element can be
+   dragged in the first place. This track is the panel's whole width and one
+   press anywhere along it sets the size. Taller than an appearance dial, and
+   ruled off from them, because it is the row that is used mid-match and it
+   moves the panel rather than the picture on it. */
+.cdc-dial-size {
+  margin-bottom: 3px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 224, 0, 0.18);
+}
+
+.cdc-dial-size .cdc-dial-track {
+  height: 16px;
+}
+
+.cdc-dial-size .cdc-dial-value {
+  flex: 0 0 34px;
+}
+
+.cdc-dial-value {
+  flex: 0 0 30px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cdc-dial-note {
+  margin-top: 3px;
+  opacity: 0.55;
+  line-height: 1.25;
+}
+
+/* Same grip the preview overlay uses, so resizing feels the same in both. */
+.cdc-radar-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(255, 224, 0, 0.55) 50%);
+}
+
+/* The global brightness/contrast pair, set on the root by repaintAppearance().
+   It lands on the pictures themselves and not on their containers, so the badge
+   layers stacked over them keep their own contrast: an annotation that dimmed
+   with the map it annotates would be unreadable exactly when the map was. */
+.cdc-map-img,
+.cdc-ig-map-img,
+.cdc-hq-full img {
+  filter: var(--cdc-render-filter, none);
+}
+
 .cdc-ig-map-empty {
   padding: 10px;
   color: #ff9a8c;
@@ -388,8 +603,18 @@
   background-size: var(--cdc-cameo-w) var(--cdc-cameo-h);
   background-position: calc(-1 * var(--cx)) calc(-1 * var(--cy));
   background-repeat: no-repeat;
-  /* Pixel art at an integer scale: never resampled, never blurred. */
-  image-rendering: pixelated;
+  /* `auto`, not `pixelated`, and the old comment's own reasoning is why: "an
+     integer scale" was measured in CSS pixels, which are not the pixels that
+     get drawn. This tile is 60 CSS px over a 60 px cell, so on a 1x display it
+     is 1:1 and no filter runs at all. On a 2x display it is 120 device px — a
+     2x upscale — and `pixelated` turns every source pixel into a hard 2x2
+     block. That is the blockiness, and it is ours rather than the art's.
+
+     `auto` also suits what this art *is*. A cameo is a 3D render downsampled to
+     60x48 and quantised to a 256-colour palette, not hand-placed pixel art;
+     nearest neighbour keeps the quantisation noise crisp instead of dissolving
+     it. Same call, for the same reason, as `.cdc-smooth` above. */
+  image-rendering: auto;
 }
 
 /* An object with no picture in the game's own art says its id rather than
@@ -497,7 +722,9 @@
 
 .cdc-chord-grid {
   display: grid;
-  grid-template-columns: repeat(var(--cols), 60px);
+  /* --cell is the cameo's width and stays it for the build grid; the taunt
+     overlay widens it, because what its tiles carry is a sentence. */
+  grid-template-columns: repeat(var(--cols), var(--cell, 60px));
   gap: 4px;
 }
 
@@ -507,7 +734,7 @@
 .cdc-chord-slot {
   position: relative;
   display: block;
-  width: 60px;
+  width: var(--cell, 60px);
   padding: 0 0 2px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 224, 0, 0.22);
@@ -724,6 +951,228 @@
    geometry is the keyboard's and a hole that closed up would move every key
    after it. A wholly blank *trailing* row is dropped instead, in chordGridRows,
    where dropping it moves nothing. */
+/* The taunt overlay is a .cdc-chord with a different set of tiles in it: same
+   box, same head, same key badges, same grid geometry — so the two overlays are
+   one thing to learn. What it does not have is a cameo, because a taunt has no
+   picture, so the tile is the height of its two lines instead of a picture's.
+
+   The bind line under the name is the client's own key for this taunt. It is a
+   control as much as a fact — clicking it listens for the next press — so it is
+   drawn as a key badge rather than as more text. */
+/* Twice a cameo wide, because a taunt tile carries what the taunt says and a
+   cameo's 60px holds four words of it. Five of these is about 660px, which
+   chordPlacement then keeps inside the viewport like any other overlay. */
+.cdc-taunt {
+  /* Wider than it was, and shorter for it. The key and the number were corner
+     badges until 1.15.0 and cost a 16px band across the top of every tile to
+     clear; in a rail down the left they cost 24px of width, and the tile loses
+     a whole row of height. 140 rather than 128 buys that width back for the
+     words, which is what keeps the longest of the eighty lines inside three
+     lines instead of pushing it into the reveal. */
+  --cell: 140px;
+}
+
+/* A rail and the words, the same shape the options page's cell has, because it
+   holds the same thing. `flex-start` and not `stretch`: the rail is two short
+   lines and has no business being as tall as three lines of text plus a key
+   badge. */
+.cdc-taunt-slot {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 3px;
+}
+
+/* Key over number, centred on each other. `auto auto` rather than a fixed
+   width so a two-character key label widens the rail instead of clipping. */
+.cdc-taunt-rail {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0 3px;
+  font-style: normal;
+}
+
+/* In the build grid the key is a badge pinned to the tile's corner. Here it is
+   the rail's first column and the biggest thing on the tile, because it is what
+   you actually press. */
+.cdc-taunt-slot .cdc-chord-key {
+  position: static;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+/* Dimmer than the key: the key is what you press, this is only the name the
+   options page and the client's own key table know the same taunt by. */
+.cdc-taunt-num {
+  color: rgba(255, 224, 160, 0.55);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1.1;
+}
+
+/* Everything that is not the rail: the words, and the client's key under them. */
+.cdc-taunt-body {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The box the words live in. It holds their three lines' worth of space whether
+   or not there are any, which is what keeps every tile one height — and it is
+   what the reveal positions against, so the reveal needs no number for where
+   the words start. */
+.cdc-taunt-words {
+  position: relative;
+  display: block;
+  font-size: 10px;
+  height: 3.6em;
+}
+
+/* What the taunt says. The build grid's name is one clipped line under a
+   picture — there the picture is the label and the words are the confirmation.
+   Here the words are the whole label, so they wrap, and three lines is what
+   holds the longest of them (Iraq's F12) at this width. Past that it clips,
+   and the tile's title carries the line in full. */
+.cdc-taunt-slot .cdc-chord-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  /* Exactly three lines, not at least three: a tile that sized itself to its
+     own words would make the rows of one grid different heights, which is what
+     the options page's taunt grid did until 1.14.0 (its top row had no empty
+     cell to hold it open, so it came out half the height of the two below). A
+     key block is a keyboard and every key on it is the same size. */
+  height: 100%;
+  padding: 0 0 0 1px;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+/* The rest of a line that did not fit, on hover — and on `.hovered`, which is
+   the same state put on by hand for a mouse the game is holding, since `:hover`
+   never fires while the pointer is locked.
+
+   `position: absolute` is the whole trick: the name leaves the flow, so it can
+   grow to its full height without the tile changing size or the grid reflowing
+   around it. `pointer-events: none` because it covers the bind line, which is a
+   control — the press has to reach what is underneath, and hover is decided by
+   the tile below anyway. Only a name that actually clipped gets this; the class
+   is set from a measurement, not from a guess about length. */
+.cdc-taunt-slot:hover .cdc-chord-name.cdc-taunt-clipped,
+.cdc-taunt-slot.hovered .cdc-chord-name.cdc-taunt-clipped {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 3;
+  display: block;
+  height: auto;
+  padding-bottom: 4px;
+  background: #14140d;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  /* Over `.cdc-chord-off`, which dims the name to 0.45 whenever the connection
+     is shut or the cooldown is running — and dims the *whole* element, its new
+     background with it, so without this the bind line underneath reads straight
+     through the reveal. Hovering a tile is a deliberate "show me this one", so
+     it wins over the dim rather than inheriting it. */
+  opacity: 1;
+}
+
+/* Not a quote: between matches there is no country and therefore no words, so
+   the tile says what the taunt is *for* instead. Marked, or it would read as
+   something a country actually says. */
+.cdc-taunt-slot .cdc-chord-name.cdc-taunt-role {
+  font-style: italic;
+  color: rgba(255, 224, 160, 0.5);
+}
+
+/* Whose taunts these are. Lit rather than merely written, because it is the
+   one line that qualifies every other line in the box: the same key says
+   something else in the next match. */
+.cdc-taunt-country {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 5px;
+  padding: 2px 6px;
+  background: rgba(255, 224, 0, 0.14);
+  border: 1px solid rgba(255, 224, 0, 0.45);
+  color: #fff1c2;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* No match, no country, no words — a state, not a country, so it drops the
+   lit border and reads as the aside it is. */
+.cdc-taunt-country.cdc-taunt-nocountry {
+  background: none;
+  border-color: rgba(255, 224, 0, 0.16);
+  color: rgba(255, 224, 160, 0.5);
+  font-size: 11px;
+}
+
+/* The client's own flag asset, at its own resolution: these are 30x20-ish PCX
+   files out of RA2 and smoothing them turns the stripes to mush. */
+.cdc-taunt-flag {
+  display: block;
+  height: 16px;
+  width: auto;
+  image-rendering: pixelated;
+}
+
+.cdc-taunt-country-name {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cdc-taunt-bind {
+  display: block;
+  margin: 2px 3px 0;
+  padding: 0 3px;
+  background: rgba(255, 224, 0, 0.1);
+  border: 1px solid rgba(255, 224, 0, 0.3);
+  color: #ffe97a;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 14px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* No key in the game at all. Not an error — the overlay's own key still sends
+   it — so this is the same dim the grid uses for a cameo that cannot be
+   ordered yet, rather than a warning colour. */
+.cdc-taunt-bind.unbound {
+  background: none;
+  border-color: rgba(255, 224, 0, 0.16);
+  color: rgba(255, 224, 160, 0.45);
+}
+
+.cdc-taunt-bind.listening {
+  background: rgba(255, 224, 0, 0.28);
+  border-color: rgba(255, 224, 0, 0.9);
+  color: #fff6cc;
+}
+
+/* The sound this slot would play is not in the client's Taunts folder. The
+   taunt is still sent and everyone else still hears their own copy, so the tile
+   is struck through rather than disabled — the dim beside it is .cdc-chord-off,
+   which this shares with a cooldown and a closed connection. */
+.cdc-taunt-silent .cdc-chord-name {
+  text-decoration: line-through;
+}
+
 .cdc-chord-gap {
   display: block;
   height: 52px;
@@ -748,7 +1197,13 @@
    outline — one alone leaves the arrow invisible against a bright cameo. */
 .cdc-cursor {
   position: fixed;
-  z-index: 6;
+  /* Above every floating panel, because the only place it is ever drawn is ON
+     one of them. It sat at 6 while the radar sits at 100002 and the grid at
+     100001, so the cursor this exists to restore was painted BEHIND the box it
+     was restoring it over -- visible only as a smudge through a 72%-opaque
+     background, which is exactly how it was reported: "as if under the
+     overlay". Keep this above the highest panel. */
+  z-index: 100003;
   width: 12px;
   height: 18px;
   pointer-events: none;

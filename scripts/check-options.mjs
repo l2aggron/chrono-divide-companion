@@ -509,7 +509,18 @@ function fakeNode(tag) {
   return {
     tag,
     className: "",
-    textContent: "",
+    // `el.textContent = ""` is how everything in this repo empties a container,
+    // and on a real node it drops the children. A fake that kept them made a
+    // redraw look like a second copy appended to the first, which is a passing
+    // count of twice the right thing.
+    _text: "",
+    get textContent() {
+      return this._text;
+    },
+    set textContent(value) {
+      this._text = String(value);
+      if (this._text === "") this.kids.length = 0;
+    },
     title: "",
     hidden: false,
     // Custom properties are how the report hands geometry to the stylesheet — a
@@ -535,17 +546,39 @@ function fakeNode(tag) {
     // until it is clicked: a loss total opens into its parts, and the state is
     // in the DOM by design, so there is no option to re-render with instead.
     on: {},
+    // **A node already here is moved, not copied.** That is what a real `append`
+    // does, and the report leans on it: the running order lays the whole list of
+    // charts out again to reorder them, and a fake that pushed would have
+    // reported eleven charts as twenty-two rather than as rearranged.
     append(...children) {
-      this.kids.push(...children);
+      for (const child of children) {
+        const at = this.kids.indexOf(child);
+        if (at >= 0) this.kids.splice(at, 1);
+        this.kids.push(child);
+      }
     },
     // A row puts its cameo on the outside of the clock, which on the left side
     // means before everything already in the cell.
     prepend(...children) {
       this.kids.unshift(...children);
     },
+    // Moves, like `append` above and for the same reason: it is how the running
+    // order puts one chart in its new place without touching the other eight.
+    // A null reference appends, which is what the real one does.
+    insertBefore(child, before) {
+      const had = this.kids.indexOf(child);
+      if (had >= 0) this.kids.splice(had, 1);
+      const at = before ? this.kids.indexOf(before) : -1;
+      if (at < 0) this.kids.push(child);
+      else this.kids.splice(at, 0, child);
+      return child;
+    },
     setAttribute(name, value) {
       this.attrs[name] = String(value);
       if (name === "class") this.className = String(value);
+    },
+    getAttribute(name) {
+      return name in this.attrs ? this.attrs[name] : null;
     },
     addEventListener(name, fn) {
       (this.on[name] = this.on[name] || []).push(fn);
@@ -589,6 +622,41 @@ const rowText = (cell) => {
 };
 
 globalThis.window = globalThis;
+/**
+ * A `localStorage` for the renderer, which keeps the reader's chart order in one.
+ *
+ * Node has none, and `replay-view.js` reads it through a `typeof` guard — so
+ * without this every ordering assertion below would be asking about the branch
+ * where nothing is remembered, and passing. It is the shape the browser's is,
+ * to the two methods that are used.
+ */
+const localStore = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (localStore.has(key) ? localStore.get(key) : null),
+  setItem: (key, value) => localStore.set(key, String(value)),
+  removeItem: (key) => localStore.delete(key),
+};
+/**
+ * A window that takes listeners, because the drag follows the pointer on one.
+ *
+ * The renderer cannot capture the pointer on the grip — reordering the list
+ * moves the grip's own figure, and moving a capturing element releases the
+ * capture — so it listens on the window for the length of the gesture. Node's
+ * `globalThis` is not an `EventTarget`, and without this the whole gesture is
+ * the branch where nothing was ever wired.
+ */
+const windowOn = new Map();
+globalThis.addEventListener = (name, fn) => {
+  if (!windowOn.has(name)) windowOn.set(name, new Set());
+  windowOn.get(name).add(fn);
+};
+globalThis.removeEventListener = (name, fn) => {
+  if (windowOn.has(name)) windowOn.get(name).delete(fn);
+};
+/** Every window listener of a kind, fired the way the browser would. */
+const windowFire = (name, event) => {
+  for (const fn of [...(windowOn.get(name) || [])]) fn(event);
+};
 new Function(readFileSync(join(here, "fixtures", "replay-types.js"), "utf8"))();
 new Function(readFileSync(join(src, "replay.js"), "utf8"))();
 // The sheet the renderer draws row icons from — loaded here so the icons are
@@ -2395,6 +2463,1100 @@ const types = [
 for (const [name, ok, detail] of types) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
 
 
+// --- a replay read off disk -------------------------------------------------
+
+/**
+ * The two halves of opening a `.rpl` the user handed over, driven rather than
+ * grepped for.
+ *
+ * Both are pulled out of src/options.js by name and run here, the way `install`
+ * and `objectInfo` above are: the panel around them needs a document, storage
+ * and a network, and none of the three is what these two do. A `null` body is
+ * an extraction that stopped matching, which is a failure and not a skip --
+ * every assertion below reads `false` when there is no function to run.
+ *
+ * Regex literals rather than one builder over a template string: a `new RegExp`
+ * of a pattern this shape needs every backslash doubled, and `infoBody` above
+ * already reads the same file the same way.
+ */
+const probeBody = /\r?\n {2}async function findReplayOnline\(gameId\) \{\r?\n([\s\S]*?)\r?\n {2}\}\r?\n/.exec(js);
+
+const HOSTS = { "am-eu": "https://eu.test", sea: "https://sea.test" };
+
+/**
+ * `findReplayOnline` over a host that answers however the case wants.
+ *
+ * `asked` is the point of the harness: whether the probe short-circuits on the
+ * first hit and whether it really sends a `HEAD` are both invisible in the
+ * return value, and a probe that downloaded whole replays would pass a test
+ * that only read what came back.
+ */
+const probeWith = (answer) => {
+  const asked = [];
+  if (!probeBody) return { run: async () => null, asked };
+  const run = new Function(
+    "REPLAY",
+    "fetch",
+    "console",
+    `return async function findReplayOnline(gameId) {${probeBody[1]}\n};`
+  )({ REPLAY_HOSTS: HOSTS }, async (url, init) => {
+    asked.push(`${(init && init.method) || "GET"} ${url}`);
+    return answer(url);
+  }, { warn: () => {} });
+  return { run, asked };
+};
+
+const ID = "5a41749b-26f9-4303-a69c-5938bb8b219c";
+const hitOn = (host) => (url) => ({ ok: url.startsWith(host) });
+const onEu = probeWith(hitOn("https://eu.test"));
+const foundEu = await onEu.run(ID);
+const onSea = probeWith(hitOn("https://sea.test"));
+const foundSea = await onSea.run(ID);
+const onNeither = probeWith(() => ({ ok: false }));
+const foundNothing = await onNeither.run(ID);
+const offline = probeWith(() => {
+  throw new Error("net::ERR_INTERNET_DISCONNECTED");
+});
+const foundOffline = await offline.run(ID);
+
+const textBody = /\r?\n {2}async function openReplayText\(text, name\) \{\r?\n([\s\S]*?)\r?\n {2}\}\r?\n/.exec(js);
+
+/**
+ * `openReplayText` with the panel stubbed out around it.
+ *
+ * The five `let`s it writes are declared in the wrapper and handed back by
+ * `read()`, which is the only way to see from out here what it decided -- the
+ * function returns nothing, and everything it does is to the panel's state.
+ */
+const readerFinding = (found) => {
+  if (!textBody) return null;
+  const calls = [];
+  const notes = [];
+  const made = new Function(
+    "REPLAY",
+    "VIEW",
+    "replayNote",
+    "replayEmptyEl",
+    "showReplay",
+    "findReplayOnline",
+    "rememberReplay",
+    "renderReplayList",
+    "renderRecents",
+    "syncSimButton",
+    "console",
+    `let replayReport = null, replaySourceNote = "", replayMatchRow = "the ladder's row", replayOpen = "", replayUrl = "";
+     return {
+       run: async function openReplayText(text, name) {${textBody[1]}
+       },
+       read: () => ({ replayReport, replaySourceNote, replayMatchRow, replayOpen, replayUrl }),
+     };`
+  )(
+    globalThis.__cdcReplay,
+    replays,
+    (text, bad) => notes.push((bad ? "BAD " : "") + text),
+    { hidden: true, textContent: "" },
+    () => calls.push("showReplay"),
+    async () => {
+      calls.push("probe");
+      return found;
+    },
+    () => calls.push("remember"),
+    () => calls.push("list"),
+    () => calls.push("recents"),
+    () => calls.push("sim"),
+    { warn: () => {} }
+  );
+  return { ...made, calls, notes };
+};
+
+const served = { url: `https://eu.test/${ID}.rpl`, gameId: ID, realm: "am-eu" };
+const online = readerFinding(served);
+if (online) await online.run(fixture, "ladder-1v1.rpl");
+const gone = readerFinding(null);
+if (gone) await gone.run(fixture, "ladder-1v1.rpl");
+// An exported report, which is the other thing that gets dropped on this panel.
+const exported = readerFinding(null);
+const exportedText = JSON.stringify(
+  globalThis.__cdcReplay.exportReport(globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture)), {
+    extension: "1.2.3",
+  })
+);
+if (exported) await exported.run(exportedText, "cd-report.json");
+const rubbish = readerFinding(null);
+if (rubbish) await rubbish.run("this is not a replay and not a report", "notes.txt");
+
+const disk = [
+  [
+    "the panel has a file input for a replay, and it takes a .rpl",
+    /id="replayFile"[^>]*type="file"/.test(html) && /id="replayFile"[^>]*accept="[^"]*\.rpl/.test(html),
+    /id="replayFile"/.test(html) ? "" : "no #replayFile in options.html",
+  ],
+  [
+    "picking the same file twice is read twice — the input is cleared after a read",
+    /replayFileEl\.addEventListener\("change"[\s\S]{0,240}?replayFileEl\.value = ""/.test(js),
+  ],
+  [
+    "a replay served by a realm resolves to that realm's URL",
+    !!foundEu && foundEu.url === `https://eu.test/${ID}.rpl` && foundEu.realm === "am-eu",
+    foundEu ? `${foundEu.realm} ${foundEu.url}` : "nothing found",
+  ],
+  [
+    "and the first host that answers ends it — the second is never asked",
+    onEu.asked.length === 1 && onEu.asked[0] === `HEAD https://eu.test/${ID}.rpl`,
+    onEu.asked.join(", "),
+  ],
+  [
+    "a replay on the other realm is found by asking that one too",
+    !!foundSea && foundSea.realm === "sea" && onSea.asked.length === 2,
+    onSea.asked.join(", "),
+  ],
+  [
+    "the ask is a HEAD, not a download of the replay",
+    onSea.asked.length > 0 && onSea.asked.every((one) => one.startsWith("HEAD ")),
+    onSea.asked.join(", "),
+  ],
+  [
+    "a match no host serves is a miss, after both were asked",
+    foundNothing === null && onNeither.asked.length === 2,
+    `${foundNothing} after ${onNeither.asked.length}`,
+  ],
+  [
+    "a network that is not there is a miss and not a throw",
+    foundOffline === null && offline.asked.length === 2,
+    `${foundOffline} after ${offline.asked.length}`,
+  ],
+  [
+    "a dropped replay is drawn before any host is asked",
+    !!online &&
+      online.calls.indexOf("showReplay") >= 0 &&
+      online.calls.indexOf("showReplay") < online.calls.indexOf("probe"),
+    online ? online.calls.join(" -> ") : "no openReplayText in options.js",
+  ],
+  [
+    "and it carries the file's own game id, so the rest of the panel can find it",
+    !!online && online.read().replayOpen === ID && !!online.read().replayReport,
+    online ? online.read().replayOpen : "",
+  ],
+  [
+    "a served match gets the URL, is remembered, and the re-run is offered",
+    !!online &&
+      online.read().replayUrl === served.url &&
+      online.calls.includes("remember") &&
+      online.calls.includes("sim"),
+    online ? `${online.read().replayUrl} · ${online.calls.join(" -> ")}` : "",
+  ],
+  [
+    "a match no host serves still draws, keeps no URL, and says why it cannot be re-run",
+    !!gone &&
+      !!gone.read().replayReport &&
+      gone.read().replayUrl === "" &&
+      !gone.calls.includes("remember") &&
+      /cannot be re-run/.test(gone.notes[gone.notes.length - 1] || ""),
+    gone ? gone.notes[gone.notes.length - 1] : "",
+  ],
+  [
+    "the ladder's row is dropped — it belonged to the match that was on screen, not to this file",
+    !!online && online.read().replayMatchRow === null,
+    online ? String(online.read().replayMatchRow) : "",
+  ],
+  [
+    "an exported report is told from a replay by its content, not its name",
+    !!exported && !!exported.read().replayReport && /exported report/.test(exported.read().replaySourceNote),
+    exported ? exported.read().replaySourceNote : "",
+  ],
+  [
+    "and a replay's own note names the file it came from",
+    !!online && online.read().replaySourceNote === "from ladder-1v1.rpl",
+    online ? online.read().replaySourceNote : "",
+  ],
+  [
+    "a file that is neither is refused, and nothing on screen claims to be a report",
+    !!rubbish &&
+      rubbish.read().replayReport === null &&
+      /^BAD could not read notes\.txt/.test(rubbish.notes[rubbish.notes.length - 1] || "") &&
+      !rubbish.calls.includes("showReplay"),
+    rubbish ? rubbish.notes[rubbish.notes.length - 1] : "",
+  ],
+];
+for (const [name, ok, detail] of disk) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+
+// --- power, outages and build tempo -----------------------------------------
+
+/**
+ * The committed harvest predates all three readings, so they are written into a
+ * copy of it here — the same doctoring the spawn, readiness and capture tracks
+ * above get, and for the same reason: a fixture regenerated from a real re-run
+ * costs a game client and a match, and what is being asked is whether the
+ * report reads a harvest that has them, not whether a client produces one.
+ *
+ * The story written in is deliberately one a chart cannot draw by accident:
+ *
+ *   0:00 - 1:00   healthy, one war factory
+ *   1:00 - 1:30   short of power — produced 60 against a drain of 200
+ *   1:30 - 2:00   healthy again, and a second war factory is up
+ *   2:00 - 2:20   **blacked out on a surplus** — 400 produced against 200 drawn
+ *                 and the client still says Low, which is a spy and is the one
+ *                 case a chart of the two lines cannot show
+ *   2:20 - end    healthy
+ *
+ * P_B never browns out and never builds a second factory, so every assertion
+ * below has a side that should show the opposite.
+ */
+const POWERED = JSON.parse(JSON.stringify(harvest));
+const TICK = 60;
+for (const row of POWERED.samples) {
+  const seconds = row.tick / TICK;
+  const short = seconds >= 60 && seconds < 90;
+  const spied = seconds >= 120 && seconds < 140;
+  for (const player of row.players) {
+    const mine = player.name === "Player_A";
+    player.power = {
+      total: mine && short ? 60 : 400,
+      drain: 200,
+      low: mine && (short || spied),
+      blackout: mine && spied,
+    };
+    player.tempo = {
+      speed: mine && short ? 0.55 : 1,
+      factories: {
+        Structures: 1,
+        Infantry: 1,
+        Vehicles: mine && seconds >= 90 ? 2 : 1,
+        Aircraft: 0,
+        Ships: 0,
+      },
+    };
+  }
+}
+const poweredReport = globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture));
+globalThis.__cdcReplay.mergeSim(poweredReport, POWERED);
+const poweredEl = fakeNode("div");
+if (replays) poweredEl.append(replays.render(poweredReport, { losses: true }));
+const poweredNodes = replays ? flat(poweredEl) : [];
+
+/**
+ * One chart out of the report, by the name in its caption.
+ *
+ * The class is matched as a list and not as a whole string: a chart that takes
+ * the full row carries `replaychart wide`, and an equality test here would have
+ * reported every one of those as absent — which is a check that goes green by
+ * finding nothing.
+ */
+const chartNamed = (nodes, title) =>
+  nodes.find(
+    (node) =>
+      (node.className || "").split(" ").includes("replaychart") &&
+      flat(node).some((kid) => kid.tag === "strong" && kid.textContent === title)
+  );
+const classed = (node, name) =>
+  node ? flat(node).filter((kid) => (kid.className || "").split(" ").includes(name)) : [];
+
+const powerChart = chartNamed(poweredNodes, "Power");
+const brownedCells = classed(poweredEl, "browned");
+const tempoChart = chartNamed(poweredNodes, "Build speed");
+const powerNote = powerChart ? (flat(powerChart).find((n) => n.tag === "span" && /outage|never short/.test(n.textContent || "")) || {}).textContent || "" : "";
+const bandTitles = classed(powerChart, "replayband").map(
+  (rect) => (flat(rect).find((kid) => kid.tag === "title") || {}).textContent || ""
+);
+const tempoKeys = classed(tempoChart, "replaykey");
+const keyOn = (key) => key.attrs["aria-pressed"] === "true";
+// Read before the click below, which is the whole point of the click: an
+// assertion about what the chart starts with, measured after a reader has
+// changed it, is an assertion about nothing.
+const keysOnAtFirst = tempoKeys.filter(keyOn);
+// Polylines only: since the legend keys became short pieces of the line itself,
+// a `.replayline` is either a series on the plot or a key above it, and the two
+// have to be counted apart.
+const tempoLines = () => classed(tempoChart, "replayline").filter((node) => node.tag === "polyline").length;
+const linesBefore = tempoLines();
+// The first key that starts switched off, turned on: the reader's own gesture.
+const offKey = tempoKeys.find((key) => !keyOn(key));
+// `on` holds a list per event name, the way this file's fake node records them.
+for (const fn of (offKey && offKey.on.click) || []) fn();
+const linesAfter = tempoLines();
+
+// The same report with a harvest that predates the readings, which is what every
+// stored run is until a match is re-run again.
+const plainEl = fakeNode("div");
+if (replays) plainEl.append(replays.render(report, { losses: true }));
+const plainNodes = replays ? flat(plainEl) : [];
+
+const countChart = chartNamed(poweredNodes, "Factories");
+const countKeys = classed(countChart, "replaykey");
+const keyNamed = (keys, name) =>
+  keys.find((key) => flat(key).map((k) => k.textContent).join("").trim() === name);
+/** Each drawn line on a chart, as the list of vertices it was given. */
+const vertices = (chart) =>
+  classed(chart, "replayline")
+    .filter((node) => node.tag === "polyline")
+    .map((line) =>
+      (line.attrs.points || "")
+        .trim()
+        .split(/\s+/)
+        .map((pair) => pair.split(",").map(Number))
+    );
+const vertexCounts = (chart) => vertices(chart).map((line) => line.length);
+/**
+ * Whether each line on a chart is drawn as a staircase.
+ *
+ * Counting the vertices is not enough and was the first version of this: a
+ * corner drawn at the **new** height is the sloped line again with a doubled
+ * point, and the count is identical. So the shape is asserted instead — every
+ * odd vertex holds the previous reading's height and sits at the next reading's
+ * moment, which is the whole of what a step is.
+ */
+const stepped = (chart) =>
+  vertices(chart).map((line) =>
+    line.every((point, i) => i % 2 === 0 || (point[1] === line[i - 1][1] && point[0] === line[i + 1][0]))
+  );
+/** The box a chart's SVG states for itself, which is not the size it renders. */
+const viewBoxOf = (chart) => {
+  const svg = chart && flat(chart).find((node) => (node.className || "") === "replayplot");
+  return svg ? svg.attrs.viewBox : "";
+};
+/** Every chart on a report, in the order they are laid out. */
+const chartFigures = (nodes) =>
+  nodes.filter((node) => (node.className || "").split(" ").includes("replaychart"));
+/** The one-line note under a chart's title. */
+const captionOf = (chart) => {
+  const said = chart && flat(chart).find((node) => node.tag === "span" && (node.textContent || "").length > 20);
+  return said ? said.textContent : "";
+};
+const readoutOf = (chart) => classed(chart, "replayreadout")[0] || { hidden: null, kids: [] };
+/** How many of a chart's crosshairs are drawn — one when it answers, none when it does not. */
+const rulesAt = (chart) =>
+  classed(chart, "replaycross").filter((node) => node.attrs.visibility === "visible").length;
+/**
+ * The pointer, put on a chart's plot at a real x.
+ *
+ * `fakeNode`'s rect is 640 wide against a 1080 box, so 320 lands mid-plot — the
+ * arithmetic the renderer does is exercised rather than stubbed, and what is
+ * being asked is whether the OTHER charts answer for the moment it works out.
+ */
+const hover = (chart, clientX) => {
+  for (const fn of (classed(chart, "replayhit")[0] || { on: {} }).on.mousemove || []) fn({ clientX });
+};
+const leave = (chart) => {
+  for (const fn of (classed(chart, "replayhit")[0] || { on: {} }).on.mouseleave || []) fn({});
+};
+/** A key pressed on a chart's grip, the way a reader moves one without a mouse. */
+const press = (chart, key) => {
+  for (const fn of (classed(chart, "replaygrip")[0] || { on: {} }).on.keydown || []) fn({ key, preventDefault() {} });
+};
+/**
+ * A chart picked up by its grip: the press, then the release.
+ *
+ * The moves in between go to the **window**, not to the grip, and they settle
+ * the list against `getBoundingClientRect` — which this fake answers with one
+ * rectangle for every node, so where a chart lands is a question only a browser
+ * can be asked. What is asked here is the gesture's own wiring: that a press
+ * takes hold, that a release lets go and writes the order down, and that the
+ * moves in between are listened for at all.
+ */
+const grab = (chart) => {
+  for (const fn of (classed(chart, "replaygrip")[0] || { on: {} }).on.pointerdown || []) {
+    fn({ button: 0, clientY: 100, preventDefault() {} });
+  }
+};
+const letGo = () => windowFire("pointerup", {});
+/** The charts of a rendered report, by name, in the order they sit in the DOM. */
+const chartOrderNow = (root) =>
+  (classed(root, "replaycharts")[0] || { kids: [] }).kids.map((figure) => figure.getAttribute("data-chart"));
+
+/**
+ * A harvest that counted factories but states no coefficient.
+ *
+ * What a profile with no harvested rules table produces: `tempoOf` writes the
+ * counts it was given and deletes `rate`, because a coefficient it cannot work
+ * out would be an invented one. The count is not invented — it came off the
+ * client — so the report should draw the one chart and not the other, and this
+ * is the fixture that says which way round.
+ */
+const uncountedReport = JSON.parse(JSON.stringify(poweredReport));
+for (const row of uncountedReport.sim.samples) {
+  for (const player of Object.values(row.players)) if (player.tempo) delete player.tempo.rate;
+}
+const uncountedEl = fakeNode("div");
+if (replays) uncountedEl.append(replays.render(uncountedReport, { losses: true }));
+const uncountedNodes = replays ? flat(uncountedEl) : [];
+
+/**
+ * How a side of two players is folded into one line, asked of the curves
+ * directly.
+ *
+ * The rendered fixture is a 1v1, where a sum and a maximum are the same number
+ * and an assertion about either is an assertion about nothing. Two players on
+ * one side with a different count each is the only shape that tells them apart:
+ * two war factories and one is **three factories** on the side and a build speed
+ * of **1.25x**, the better of the two, because speeds do not add.
+ */
+const teamed = replays
+  ? replays.tempoCurves(
+      {
+        duration: 10,
+        sim: {
+          samples: [
+            {
+              at: 0,
+              players: {
+                One: { tempo: { factories: { Vehicles: 2 }, rate: { Vehicles: 1.25 } } },
+                Two: { tempo: { factories: { Vehicles: 1 }, rate: { Vehicles: 1 } } },
+              },
+            },
+          ],
+        },
+      },
+      [[{ name: "One" }, { name: "Two" }]]
+    )
+  : { tempo: [], counts: [] };
+
+// The coefficient, straight out of the merged report rather than off a chart:
+// two war factories at 0.8 is 1.25, and a browned-out base is its own modifier.
+const rateAt = (seconds, queue) => {
+  const row = poweredReport.sim.samples.reduce((best, one) =>
+    Math.abs(one.at - seconds) < Math.abs(best.at - seconds) ? one : best
+  );
+  const player = row.players.Player_A;
+  return player && player.tempo && player.tempo.rate ? player.tempo.rate[queue] : undefined;
+};
+
+const powered = [
+  [
+    "a re-run that read power draws a power chart, and one that did not draws none",
+    !!powerChart && !chartNamed(plainNodes, "Power"),
+    `${!!powerChart} with, ${!!chartNamed(plainNodes, "Power")} without`,
+  ],
+  [
+    "the same for build speed — an old harvest gets no chart rather than a flat one",
+    !!tempoChart && !chartNamed(plainNodes, "Build speed"),
+    `${!!tempoChart} with, ${!!chartNamed(plainNodes, "Build speed")} without`,
+  ],
+  [
+    "every brownout is a band, and the side that never browned out draws none",
+    bandTitles.length === 2 && bandTitles.every((said) => /Player_A/.test(said)),
+    bandTitles.join(" | "),
+  ],
+  [
+    "a blackout on a surplus is named as one, not as a shortage",
+    bandTitles.some((said) => /blacked out/.test(said)) && bandTitles.some((said) => /short of power/.test(said)),
+    bandTitles.join(" | "),
+  ],
+  [
+    "the outages are added up in the chart's own line — count, total and longest",
+    /2 outages/.test(powerNote) && /0:50 in total/.test(powerNote) && /longest 0:30/.test(powerNote),
+    powerNote,
+  ],
+  [
+    "and the side that was never short says so rather than being left out",
+    /never short of power/.test(powerNote),
+    powerNote,
+  ],
+  [
+    "a second war factory reads as 1.25x, one as 1.00x",
+    rateAt(150, "Vehicles") === 1.25 && rateAt(30, "Vehicles") === 1,
+    `${rateAt(30, "Vehicles")} -> ${rateAt(150, "Vehicles")}`,
+  ],
+  [
+    "a browned-out base builds below 1, by the client's own modifier",
+    rateAt(75, "Infantry") === 0.55,
+    String(rateAt(75, "Infantry")),
+  ],
+  [
+    "a queue with no factory is a gap in the line, not a speed",
+    rateAt(75, "Aircraft") === null,
+    String(rateAt(75, "Aircraft")),
+  ],
+  [
+    "the build-speed legend offers every queue and starts on infantry and vehicles",
+    tempoKeys.length === 10 &&
+      keysOnAtFirst.length === 4 &&
+      keysOnAtFirst.every((key) => /infantry|vehicles/.test(flat(key).map((k) => k.textContent).join(""))),
+    `${tempoKeys.length} keys, ${keysOnAtFirst.length} on: ${keysOnAtFirst
+      .map((key) => flat(key).map((k) => k.textContent).join(""))
+      .join(", ")}`,
+  ],
+  [
+    "and only the ones that are on are drawn",
+    linesBefore === 4,
+    String(linesBefore),
+  ],
+  [
+    "the brownout reaches the timeline as well as the chart, down the right side's column",
+    brownedCells.length > 0 &&
+      brownedCells.every((cell) => (cell.className || "").split(" ").includes("s1")) &&
+      brownedCells.some((cell) => (cell.className || "").split(" ").includes("blackedout")),
+    `${brownedCells.length} cells, ${brownedCells.filter((c) => (c.className || "").includes("blackedout")).length} blacked out`,
+  ],
+  [
+    "and it covers the rows that are not there, which is what makes it a band",
+    brownedCells.some((cell) => (cell.className || "").split(" ").includes("empty")),
+    brownedCells.filter((c) => (c.className || "").includes("empty")).length + " empty rows shaded",
+  ],
+  [
+    "a report with no harvest shades nothing — the file holds no power",
+    classed(plainEl, "browned").length === 0,
+    String(classed(plainEl, "browned").length),
+  ],
+  [
+    "clicking a key off the chart puts its line on it",
+    !!offKey && linesAfter === linesBefore + 1,
+    `${linesBefore} -> ${linesAfter}`,
+  ],
+  [
+    "a factory-count chart is drawn beside the speed it explains, and not on an old harvest",
+    !!countChart && !chartNamed(plainNodes, "Factories"),
+    `${!!countChart} with, ${!!chartNamed(plainNodes, "Factories")} without`,
+  ],
+  [
+    "it offers the same queues as the speed chart and starts on the same two",
+    countKeys.length === tempoKeys.length && countKeys.filter(keyOn).length === 4,
+    `${countKeys.length} keys, ${countKeys.filter(keyOn).length} on`,
+  ],
+  [
+    "nought is a reading here and a gap above — a queue with no factory has a line to draw",
+    !!keyNamed(countKeys, "aircraft") &&
+      !keyNamed(countKeys, "aircraft").disabled &&
+      !!keyNamed(tempoKeys, "aircraft") &&
+      !!keyNamed(tempoKeys, "aircraft").disabled,
+    `factories aircraft ${keyNamed(countKeys, "aircraft") && keyNamed(countKeys, "aircraft").disabled ? "dead" : "live"}, ` +
+      `speed aircraft ${keyNamed(tempoKeys, "aircraft") && keyNamed(tempoKeys, "aircraft").disabled ? "dead" : "live"}`,
+  ],
+  [
+    "a count is held between readings, not sloped — every corner is at the height it came from",
+    stepped(countChart).length === 4 &&
+      stepped(countChart).every(Boolean) &&
+      vertexCounts(countChart).every((n) => n === POWERED.samples.length * 2 - 1) &&
+      vertexCounts(tempoChart).every((n) => n === POWERED.samples.length),
+    `factories ${vertexCounts(countChart).join("/")} vertices, ${stepped(countChart).filter(Boolean).length} of ${
+      stepped(countChart).length
+    } stepped; speed ${vertexCounts(tempoChart).join("/")} over ${POWERED.samples.length} readings`,
+  ],
+  [
+    "a harvest with counts but no rules behind them draws the counts and not the coefficient",
+    !!chartNamed(uncountedNodes, "Factories") && !chartNamed(uncountedNodes, "Build speed"),
+    `${!!chartNamed(uncountedNodes, "Factories")} counts, ${!!chartNamed(uncountedNodes, "Build speed")} speed`,
+  ],
+  [
+    "every chart is the same box — there is no narrow one and no special case",
+    chartFigures(poweredNodes).length === 7 &&
+      chartFigures(poweredNodes).every((figure) => viewBoxOf(figure) === "0 0 1080 190"),
+    chartFigures(poweredNodes)
+      .map((figure) => `${figure.getAttribute("data-chart")} ${viewBoxOf(figure)}`)
+      .join(" | "),
+  ],
+  [
+    "no chart draws a tooltip of the caption printed above it",
+    // Every `<title>` still on the page names a band, not a chart — the outage
+    // shading has nothing else to say what it is. The name a screen reader gets
+    // moved to `aria-label`, which is a name and not a box that opens over the
+    // plot a second after the pointer stops.
+    !flat(poweredEl).some((node) => {
+      const said = node.tag === "title" && (node.textContent || "");
+      return said && chartFigures(poweredNodes).some((figure) => said.startsWith(figure.getAttribute("data-chart") + " —"));
+    }) &&
+      chartFigures(poweredNodes).every((figure) => {
+        const svg = flat(figure).find((node) => (node.className || "") === "replayplot");
+        return svg && svg.attrs["aria-label"] === `${figure.getAttribute("data-chart")} — ${captionOf(figure)}`;
+      }),
+    `${flat(poweredEl).filter((n) => n.tag === "title").length} svg titles left, all of them bands`,
+  ],
+  [
+    "nor on a legend key that works — only on the one that cannot",
+    // Both charts' keys, because the two branches live on different ones: every
+    // key on Factories can be clicked, and the four dead ones are on Build
+    // speed. Asked of one chart it was an assertion about one branch.
+    tempoKeys.concat(countKeys).every((key) => (key.disabled ? !!key.title : !key.title)) &&
+      tempoKeys.some((key) => key.disabled) &&
+      countKeys.every((key) => !key.disabled),
+    `${tempoKeys.concat(countKeys).filter((k) => k.title).length} of ${
+      tempoKeys.length + countKeys.length
+    } keys carry one, ${tempoKeys.concat(countKeys).filter((k) => k.disabled).length} are dead`,
+  ],
+  [
+    "a moment pointed at on one chart is drawn on every chart",
+    (() => {
+      hover(powerChart, 320);
+      return chartFigures(poweredNodes).every((figure) => rulesAt(figure) === 1 && !readoutOf(figure).hidden);
+    })(),
+    `${chartFigures(poweredNodes).filter((f) => rulesAt(f) === 1).length} of ${
+      chartFigures(poweredNodes).length
+    } charts ruled, readouts say ${readoutOf(countChart).kids.map((k) => k.textContent).join(" ").slice(0, 40)}`,
+  ],
+  [
+    "and taking the pointer off one takes it off all of them",
+    (() => {
+      leave(powerChart);
+      return chartFigures(poweredNodes).every((figure) => rulesAt(figure) === 0 && readoutOf(figure).hidden);
+    })(),
+    `${chartFigures(poweredNodes).filter((f) => rulesAt(f) === 0).length} cleared`,
+  ],
+  [
+    "every chart carries a grip, and the arrow keys move the chart it belongs to",
+    (() => {
+      const was = chartOrderNow(poweredEl);
+      press(chartNamed(poweredNodes, "Credits"), "ArrowDown");
+      const now = chartOrderNow(poweredEl);
+      return (
+        chartFigures(poweredNodes).every((figure) => classed(figure, "replaygrip").length === 1) &&
+        was[0] === "Credits" &&
+        now[1] === "Credits" &&
+        now[0] === was[1]
+      );
+    })(),
+    chartOrderNow(poweredEl).slice(0, 3).join(" / "),
+  ],
+  [
+    "a press on a grip takes hold of its chart and a release lets go of it",
+    (() => {
+      const chart = chartNamed(poweredNodes, "Power");
+      grab(chart);
+      const held = (chart.className || "").split(" ").includes("dragging");
+      const listening = windowOn.has("pointermove") && windowOn.get("pointermove").size === 1;
+      letGo();
+      return (
+        held &&
+        listening &&
+        !(chart.className || "").split(" ").includes("dragging") &&
+        // Let go of, and not still listened for: a gesture that leaves its
+        // window listeners behind moves charts on the next mouse move anywhere
+        // on the page.
+        windowOn.get("pointermove").size === 0
+      );
+    })(),
+    `${windowOn.get("pointermove") ? windowOn.get("pointermove").size : "no"} listeners left behind`,
+  ],
+  [
+    "the readout hangs from whichever end of the clock it is near, and is centred between them",
+    (() => {
+      const chart = chartNamed(poweredNodes, "Credits");
+      const seen = [];
+      // Left of the plot, the middle, and the far right — the crosshair's own
+      // arithmetic, so the shares are of the box and not of the fake's rect.
+      for (const clientX of [45, 320, 620]) {
+        hover(chart, clientX);
+        seen.push(readoutOf(chart).style.transform);
+      }
+      leave(chart);
+      return seen.join(" ") === "none translateX(-50%) translateX(-100%)";
+    })(),
+    (() => {
+      const chart = chartNamed(poweredNodes, "Credits");
+      const seen = [45, 320, 620].map((x) => {
+        hover(chart, x);
+        return readoutOf(chart).style.transform;
+      });
+      leave(chart);
+      return seen.join(" / ");
+    })(),
+  ],
+  [
+    "the move is remembered, and a report drawn again comes back in that order",
+    (() => {
+      const saved = JSON.parse(localStorage.getItem("cdc.replay.chartorder") || "null");
+      const again = fakeNode("div");
+      again.append(replays.render(poweredReport, { losses: true }));
+      return Array.isArray(saved) && saved[1] === "Credits" && chartOrderNow(again)[1] === "Credits";
+    })(),
+    `stored ${(JSON.parse(localStorage.getItem("cdc.replay.chartorder") || "[]") || []).slice(0, 3).join(" / ")}`,
+  ],
+  [
+    "a side of two players is three factories and the better of their two speeds",
+    teamed.counts.length === 1 &&
+      teamed.counts[0].points[0][1] === 3 &&
+      teamed.tempo.length === 1 &&
+      teamed.tempo[0].points[0][1] === 1.25,
+    `${teamed.counts.length ? teamed.counts[0].points[0][1] : "-"} factories, ${
+      teamed.tempo.length ? teamed.tempo[0].points[0][1] : "-"
+    }x`,
+  ],
+];
+for (const [name, ok, detail] of powered) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+
+// --- spies ------------------------------------------------------------------
+
+/**
+ * Two infiltrations written into a copy of the harvest, one each way, because
+ * the interesting half of this row is that it is drawn on both sides at once:
+ * the spy leaves one column and arrives in the other at the same second, and
+ * that pairing is the reading.
+ *
+ * The effects and the balance left behind are what a re-run records off the
+ * building's own rules at the moment it happens — `AgentTrait#infiltrate`
+ * branches on `rules.radar`, `rules.power`, a superweapon trait and
+ * `rules.storage`, and on nothing else.
+ */
+const SPIED = JSON.parse(JSON.stringify(harvest));
+SPIED.infiltrations = [
+  // Player_A's spy into P_B's refinery: money moves, and the engine had already
+  // taken it by the time the event fired, so 1500 is what P_B was left holding
+  // at a half share — about 1500 taken.
+  { tick: 4800, name: "NAREFN", owner: "P_B", spy: "SPY", by: "Player_A", effects: ["money"], left: 1500, share: 0.5 },
+  // P_B's spy into Player_A's power plant: the base blacks out, and nothing at
+  // all moves in the credit lines that a chart could show.
+  { tick: 7800, name: "NAPOWR", owner: "Player_A", spy: "SPY", by: "P_B", effects: ["blackout"], left: null, share: null },
+];
+const spiedReport = globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture));
+globalThis.__cdcReplay.mergeSim(spiedReport, SPIED);
+const spiedEl = fakeNode("div");
+if (replays) spiedEl.append(replays.render(spiedReport, { losses: true }));
+const spiedNodes = replays ? flat(spiedEl) : [];
+const spyCells = spiedNodes.filter((node) => /\b(spied|infiltrated)\b/.test(node.className || ""));
+const spyHead = spiedNodes
+  .filter((node) => (node.className || "") === "replayfact")
+  .map((node) => node.textContent)
+  .join(" | ");
+const merged = spiedReport.sim.spyRows || [];
+
+const spies = [
+  [
+    "an infiltration reaches the report from the harvest, both of them",
+    merged.length === 2,
+    String(merged.length),
+  ],
+  [
+    "the theft is worked back from the balance the victim was left holding",
+    merged[0] && merged[0].stole === 1500 && merged[1] && merged[1].stole === null,
+    merged.length ? `${merged[0].stole} and ${merged[1].stole}` : "",
+  ],
+  [
+    "each one is drawn twice — once on the side that sent it, once on the side it happened to",
+    spyCells.length === 4 &&
+      spyCells.filter((c) => /\bspied\b/.test(c.className)).length === 2 &&
+      spyCells.filter((c) => /\binfiltrated\b/.test(c.className)).length === 2,
+    spyCells.map((c) => c.className).join(" | "),
+  ],
+  [
+    "and the two halves land on opposite sides of the clock",
+    spyCells.filter((c) => /\bspied\b/.test(c.className)).some((c) => /\bs1\b/.test(c.className)) &&
+      spyCells.filter((c) => /\bspied\b/.test(c.className)).some((c) => /\bs2\b/.test(c.className)),
+    spyCells.filter((c) => /\bspied\b/.test(c.className)).map((c) => c.className).join(" | "),
+  ],
+  [
+    "the row says what the spy did — on the row, not in its words, which the column is sized by",
+    spyCells.some((c) => /about 1500 credits taken/.test(c.title || "")) &&
+      spyCells.some((c) => /the base blacks out/.test(c.title || "")) &&
+      spyCells.every((c) => !/credits taken|blacks out/.test(flat(c).map((k) => k.textContent).join(" "))),
+    spyCells.map((c) => c.title).join(" | "),
+  ],
+  [
+    "the header counts them per side that sent one, and names what was got into",
+    /Player_A: 1 spy in — Soviet Ore Refinery, about 1500 credits taken/.test(spyHead) &&
+      /P_B: 1 spy in — Tesla Reactor/.test(spyHead),
+    spyHead,
+  ],
+  [
+    "a match with no spies says nothing about spies rather than saying none",
+    !/spy in|spies in/.test(
+      poweredNodes
+        .filter((node) => (node.className || "") === "replayfact")
+        .map((node) => node.textContent)
+        .join(" | ")
+    ),
+    "",
+  ],
+];
+for (const [name, ok, detail] of spies) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+// --- pointing a re-run at a file ---------------------------------------------
+
+/**
+ * `askForSim`, driven with the panel stubbed out around it.
+ *
+ * What is being asked is the pair of decisions it makes and nothing else: which
+ * URL the game tab is opened at, and whether the file rides along. Both are
+ * invisible from outside — one goes into storage and the other into a message to
+ * the service worker — so both are captured here.
+ */
+const askBody = /\r?\n {2}function askForSim\(\) \{\r?\n([\s\S]*?)\r?\n {2}\}\r?\n/.exec(js);
+const askWith = (state) => {
+  if (!askBody) return null;
+  const stored = [];
+  const sent = [];
+  const run = new Function(
+    "REPLAY",
+    "replayOpen",
+    "replayUrl",
+    "replayFileText",
+    "replayRealmEl",
+    "replayPaceEl",
+    "replayShowEl",
+    "chrome",
+    "replayNote",
+    "syncSimButton",
+    "longMatch",
+    "simProgressing",
+    "setTimeout",
+    "SIM_NUDGE_MS",
+    `return function askForSim() {${askBody[1]}\n};`
+  )(
+    globalThis.__cdcReplay,
+    state.open,
+    state.url,
+    state.text,
+    { value: "am-eu" },
+    { value: "" },
+    { checked: false },
+    {
+      storage: { local: { set: (patch) => stored.push(patch) } },
+      runtime: { sendMessage: (message, answer) => (sent.push(message), answer({ ok: true, tabId: 1 })), lastError: null },
+    },
+    () => {},
+    () => {},
+    () => false,
+    () => true,
+    () => {},
+    1
+  );
+  run();
+  return { stored, sent };
+};
+
+const ID2 = "5a41749b-26f9-4303-a69c-5938bb8b219c";
+const HOST = globalThis.__cdcReplay.REPLAY_HOSTS["am-eu"];
+const served2 = askWith({ open: ID2, url: `${HOST}/${ID2}.rpl`, text: "RA2TSREPL_v6\nstuff" });
+const local = askWith({ open: ID2, url: "", text: "RA2TSREPL_v6\nstuff" });
+const neither = askWith({ open: ID2, url: "", text: "" });
+
+const jobOf = (asked) => (asked && asked.stored[0] && asked.stored[0].sim) || null;
+const tabOf = (asked) => (asked && asked.sent[0] && asked.sent[0].url) || "";
+
+const local2 = [
+  [
+    "a match the hosts serve is fetched by the client, as it always has been",
+    !!jobOf(served2) && jobOf(served2).text === null && jobOf(served2).url === `${HOST}/${ID2}.rpl`,
+    jobOf(served2) ? `text ${jobOf(served2).text}, url ${jobOf(served2).url}` : "no job",
+  ],
+  [
+    "a file no host serves is pointed at the URL the match would have had",
+    !!jobOf(local) && jobOf(local).url === `${HOST}/${ID2}.rpl` && tabOf(local).endsWith(encodeURIComponent(`${HOST}/${ID2}.rpl`)),
+    tabOf(local),
+  ],
+  [
+    "and the file rides with the job, because nothing will answer that URL",
+    !!jobOf(local) && jobOf(local).text === "RA2TSREPL_v6\nstuff",
+    jobOf(local) ? String(jobOf(local).text).slice(0, 20) : "",
+  ],
+  [
+    "a report with neither asks for nothing at all",
+    !!neither && neither.stored.length === 0 && neither.sent.length === 0,
+    neither ? `${neither.stored.length} stored, ${neither.sent.length} sent` : "no askForSim in options.js",
+  ],
+  [
+    "the re-run is offered for a URL or for a file, and for an exported report neither",
+    /replaySimEl\.disabled = !replayOpen \|\| \(!replayUrl && !replayFileText\)/.test(js),
+  ],
+  [
+    "an exported report keeps no file to hand over — the client plays replays, not reports",
+    /replayFileText = text\.trimStart\(\)\.startsWith\("\{"\) \? "" : text;/.test(js),
+  ],
+];
+for (const [name, ok, detail] of local2) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+// --- the legend, once the charts had ten lines -------------------------------
+
+/**
+ * The build-speed harvest again, this time with the Defence tab in it.
+ *
+ * `POWERED` above predates the factory table and names five queues; a real
+ * harvest names six, because the client's `QueueType` has an `Armory` — the
+ * Defence tab — and reports `BuildingType` as its factory, which is the same
+ * factory `Structures` reads. Written in here so the collapse has something to
+ * collapse.
+ */
+const WITH_ARMORY = JSON.parse(JSON.stringify(POWERED));
+for (const row of WITH_ARMORY.samples) {
+  for (const player of row.players) {
+    player.tempo.factories = {
+      Structures: player.tempo.factories.Structures,
+      Armory: player.tempo.factories.Structures,
+      Infantry: player.tempo.factories.Infantry,
+      Vehicles: player.tempo.factories.Vehicles,
+      Aircraft: 0,
+      Ships: 0,
+    };
+    player.tempo.factoryOf = {
+      Structures: "10",
+      Armory: "10",
+      Infantry: "12",
+      Vehicles: "13",
+      Aircraft: "14",
+      Ships: "15",
+    };
+  }
+}
+const armoryReport = globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture));
+globalThis.__cdcReplay.mergeSim(armoryReport, WITH_ARMORY);
+const armoryEl = fakeNode("div");
+if (replays) armoryEl.append(replays.render(armoryReport, { losses: true }));
+const armoryNodes = replays ? flat(armoryEl) : [];
+const armoryChart = chartNamed(armoryNodes, "Build speed");
+const armoryKeys = classed(armoryChart, "replaykey").map((key) =>
+  flat(key)
+    .map((k) => k.textContent)
+    .join("")
+);
+
+// The Power chart, which repeats a side's name twice rather than five times and
+// is grouped for the same reason.
+const powerRows = classed(powerChart, "replayseries");
+const powerNames = classed(powerChart, "replaysidename").map((n) => n.textContent);
+// A key's words live in a text node under it, not on it, so a key is read by
+// joining its descendants — the same way `armoryKeys` above is.
+const wordsIn = (node) => flat(node).map((k) => k.textContent).join("");
+const powerKeyText = classed(powerChart, "replayseries")
+  .flatMap((row) => row.kids.filter((kid) => kid !== row.kids[0]))
+  .map(wordsIn);
+// What the harvest handed over, so the collapse below is asserted against a
+// queue that was really there rather than one that never arrived.
+const armoryIn = Object.keys(armoryReport.sim.samples[0].players.Player_A.tempo.rate || {});
+
+const legend = [
+  [
+    "a queue that reads the same factory as an earlier one draws no second line",
+    armoryIn.includes("Armory") && armoryKeys.length === 10 && !armoryKeys.some((text) => /armory/.test(text)),
+    `harvest had ${armoryIn.join("/")}, chart drew ${armoryKeys.join(", ")}`,
+  ],
+  [
+    "and it is the Defence tab that goes, not the Structures tab it duplicates",
+    armoryKeys.filter((text) => /structures/.test(text)).length === 2,
+    armoryKeys.join(", "),
+  ],
+  [
+    "a harvest with no factory table keeps every queue — one line too many is not a wrong one",
+    classed(tempoChart, "replaykey").length === 10,
+    String(classed(tempoChart, "replaykey").length),
+  ],
+  [
+    "the side's name is written once per row, not once per key",
+    classed(armoryChart, "replayseries").length === 2 &&
+      classed(armoryChart, "replaysidename").map((n) => n.textContent).join(",") === "Player_A,P_B",
+    classed(armoryChart, "replaysidename").map((n) => n.textContent).join(", "),
+  ],
+  [
+    "so a key says only what varies",
+    armoryKeys.every((text) => !/Player_A|P_B/.test(text)),
+    armoryKeys.join(", "),
+  ],
+  [
+    "and every key is a piece of the line itself, in that line's own classes",
+    classed(armoryChart, "replayswatch").length === 10 &&
+      classed(armoryChart, "replayswatch").every((s) => flat(s).some((k) => k.tag === "line" && /replayline/.test(k.className || ""))),
+    String(classed(armoryChart, "replayswatch").length),
+  ],
+  [
+    "no round dot is left in a chart legend — a dot cannot show a dash",
+    classed(armoryChart, "replaydot").length === 0 && classed(powerChart, "replaydot").length === 0,
+    `${classed(armoryChart, "replaydot").length} + ${classed(powerChart, "replaydot").length}`,
+  ],
+  [
+    "the power chart groups too, because it repeats a name as well",
+    powerRows.length === 2 && powerNames.join(",") === "Player_A,P_B",
+    powerNames.join(", "),
+  ],
+  [
+    "and its keys are produced and used, said once per side",
+    powerKeyText.filter((t) => t === "produced").length === 2 && powerKeyText.filter((t) => t === "used").length === 2,
+    powerKeyText.join(", "),
+  ],
+  [
+    "a chart with one line per side is not grouped — there is nothing to say twice",
+    classed(chartNamed(poweredNodes, "Credits"), "replayseries").length === 0,
+    String(classed(chartNamed(poweredNodes, "Credits"), "replayseries").length),
+  ],
+  [
+    "an end-of-line label on a grouped chart drops the side, which the legend already said",
+    classed(powerChart, "replaytick").some((t) => t.textContent === "produced") &&
+      !classed(powerChart, "replaytick").some((t) => /Player_A produced/.test(t.textContent || "")),
+    classed(powerChart, "replaytick").map((t) => t.textContent).filter(Boolean).join(" | "),
+  ],
+];
+for (const [name, ok, detail] of legend) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+// --- a harvest taken before the factory was recorded -------------------------
+
+/**
+ * The state every stored run was in until 2026-08-31: the counts, no factory
+ * table, and the client's own spelling of the aircraft queue.
+ *
+ * This is the case the first version of the collapse did not cover — it read
+ * the factory off the harvest, so a harvest without one kept every queue and
+ * went on drawing the Defence tab as a second copy of the Structures line. A
+ * re-run would have fixed it and nobody should have to re-run a match to stop
+ * seeing one line twice.
+ */
+const OLD_HARVEST = JSON.parse(JSON.stringify(POWERED));
+for (const row of OLD_HARVEST.samples) {
+  for (const player of row.players) {
+    player.tempo = {
+      speed: player.tempo.speed,
+      factories: {
+        Structures: 1,
+        Armory: 1,
+        Infantry: 1,
+        Vehicles: player.tempo.factories.Vehicles,
+        // As the client spells it, which is not how the replay file's own type
+        // list spells it.
+        Aircrafts: 1,
+        Ships: 0,
+      },
+    };
+  }
+}
+const oldReport = globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture));
+globalThis.__cdcReplay.mergeSim(oldReport, OLD_HARVEST);
+const oldEl = fakeNode("div");
+if (replays) oldEl.append(replays.render(oldReport, { losses: true }));
+const oldChart = chartNamed(replays ? flat(oldEl) : [], "Build speed");
+const oldKeys = classed(oldChart, "replaykey").map(wordsIn);
+const oldRate = oldReport.sim.samples[0].players.Player_A.tempo;
+
+// The harvest's own answer has to keep winning where it has one: a client that
+// moved a queue to a factory of its own must not be overruled by this file's
+// copy of the mapping.
+const MOVED = JSON.parse(JSON.stringify(OLD_HARVEST));
+for (const row of MOVED.samples) {
+  for (const player of row.players) {
+    player.tempo.factoryOf = { Structures: "10", Armory: "99", Infantry: "12", Vehicles: "13", Aircrafts: "14", Ships: "15" };
+  }
+}
+const movedReport = globalThis.__cdcReplay.analyze(globalThis.__cdcReplay.parse(fixture));
+globalThis.__cdcReplay.mergeSim(movedReport, MOVED);
+const movedEl = fakeNode("div");
+if (replays) movedEl.append(replays.render(movedReport, { losses: true }));
+const movedKeys = classed(chartNamed(replays ? flat(movedEl) : [], "Build speed"), "replaykey").map(wordsIn);
+
+const stored = [
+  [
+    "a harvest taken before the factory was recorded still collapses the Defence tab",
+    oldKeys.length === 10 && !oldKeys.some((text) => /armory/.test(text)),
+    oldKeys.join(", "),
+  ],
+  [
+    "and it does so without a re-run — the mapping is filled in on the way through",
+    !!oldRate.factoryOf && oldRate.factoryOf.Structures === oldRate.factoryOf.Armory,
+    JSON.stringify(oldRate.factoryOf),
+  ],
+  [
+    "the client's own spelling of the aircraft queue is normalised, not carried through",
+    Object.keys(oldRate.rate || {}).includes("Aircraft") && !Object.keys(oldRate.rate || {}).includes("Aircrafts"),
+    Object.keys(oldRate.rate || {}).join(", "),
+  ],
+  [
+    "so it sorts where it belongs rather than at the end as a queue nobody knows",
+    oldKeys.slice(0, 4).join(",") === "structures,infantry,vehicles,aircraft",
+    oldKeys.join(", "),
+  ],
+  [
+    "a client that gave the Defence tab a factory of its own keeps both lines",
+    movedKeys.length === 12 && movedKeys.some((text) => /armory/.test(text)),
+    movedKeys.join(", "),
+  ],
+];
+for (const [name, ok, detail] of stored) console.log(`${ok ? "PASS" : "FAIL"} ${name}${detail ? " — " + detail : ""}`);
+
+
 // --- the stylesheets parse ---------------------------------------------------
 
 // A comment that loses its opener takes the rule under it with it: the browser
@@ -2458,7 +3620,13 @@ if (
   rows.some(([, ok]) => !ok) ||
   recents.some(([, ok]) => !ok) ||
   drawn.some(([, ok]) => !ok) ||
-  types.some(([, ok]) => !ok)
+  types.some(([, ok]) => !ok) ||
+  disk.some(([, ok]) => !ok) ||
+  powered.some(([, ok]) => !ok) ||
+  spies.some(([, ok]) => !ok) ||
+  local2.some(([, ok]) => !ok) ||
+  legend.some(([, ok]) => !ok) ||
+  stored.some(([, ok]) => !ok)
 ) {
   process.exit(1);
 }

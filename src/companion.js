@@ -66,11 +66,29 @@
     art: "game/art/Art",
     objectType: "engine/type/ObjectType",
     imageUtils: "engine/gfx/ImageUtils",
+    // The country flag on the taunt overlay, through the client's own path to
+    // one. `ImageContext` is where the client parks the VFS, the CDN base and
+    // the decoded-image cache its `Image` component reads — a static, not a
+    // React context — so the loading screen's own `CountryIcon` has usually
+    // already put every flag in this match into it. `PcxFile` is the decoder
+    // for the miss.
+    imageContext: "gui/component/ImageContext",
+    pcxFile: "data/PcxFile",
     // The sidebar's own two components: the block of cameos, and the four tab
     // buttons above it. Both are read for geometry only — where a cameo is, so
     // its key can be drawn on it.
     sidebarCard: "gui/screen/game/component/hud/SidebarCard",
     sidebarTabs: "gui/screen/game/component/hud/SidebarTabs",
+    // The HUD itself and the world view whose width it takes. Read together
+    // because collapsing the sidebar is two facts, not one: `Hud` is where the
+    // sidebar's objects hang — one ref-less container holding the frame, the
+    // radar, the credits, the cameo card and the power bar, plus a second one
+    // for the six buttons — and `WorldView#computeWorldViewport` is the single
+    // place `hud.sidebarWidth` is subtracted from the world's own scissor. Hide
+    // the first without the second and the freed strip is the renderer's clear
+    // colour, which is worse than the sidebar.
+    hud: "gui/screen/game/component/Hud",
+    worldView: "gui/screen/game/WorldView",
     // The client's own mouse pointer. It keeps the real one locked and draws
     // a sprite instead, which is why anything of ours that wants a click or a
     // cursor position has to go through it.
@@ -136,8 +154,12 @@
     art: "Art",
     objectType: "ObjectType",
     imageUtils: "ImageUtils",
+    imageContext: "ImageContext",
+    pcxFile: "PcxFile",
     sidebarCard: "SidebarCard",
     sidebarTabs: "SidebarTabs",
+    hud: "Hud",
+    worldView: "WorldView",
     pointer: "Pointer",
     superWeaponStatus: "SuperWeaponStatus",
     pingMonitor: "PingMonitor",
@@ -195,9 +217,14 @@
     //
     // `U` `I` `O` `P` are the four panels and pictures, in the order they are
     // reached for; `M` and `N` carry their own initial; `J` and `K` are the two
-    // opened when something is wrong.
+    // opened when something is wrong; `H` hides.
     overlay: { code: "KeyO", keyCode: 79, alt: true, shift: false, ctrl: false, label: "Alt+O" },
     queues: { code: "KeyP", keyCode: 80, alt: true, shift: false, ctrl: false, label: "Alt+P" },
+    // The taunts, on the only right-hand letter left that stands for
+    // anything: `Y` for *yell*. `T` is the letter the feature is named after
+    // and it is not available — it is the fifth slot of the chord grid, which
+    // means the left hand, and the grid spends that block under every modifier.
+    taunts: { code: "KeyY", keyCode: 89, alt: true, shift: false, ctrl: false, label: "Alt+Y" },
     hqSwap: { code: "KeyI", keyCode: 73, alt: true, shift: false, ctrl: false, label: "Alt+I" },
     hqFull: { code: "KeyU", keyCode: 85, alt: true, shift: false, ctrl: false, label: "Alt+U" },
     // The game menu, on the letter it is named after: it is the one of these
@@ -207,6 +234,10 @@
     // (`ownKeys`), so it takes a key none of the public six would want back.
     debug: { code: "KeyJ", keyCode: 74, alt: true, shift: false, ctrl: false, label: "Alt+J" },
     net: { code: "KeyN", keyCode: 78, alt: true, shift: false, ctrl: false, label: "Alt+N" },
+    // The radar, on the letter next to the four panels rather than on R: R is
+    // in the qwert block, which an open build grid spends under every
+    // modifier, and the left hand is not available to any general default.
+    radar: { code: "KeyL", keyCode: 76, alt: true, shift: false, ctrl: false, label: "Alt+L" },
     // The memory readout, next to the debug panel rather than next to the six:
     // both are opened when something is wrong, not while playing. Its own
     // argument for a bare key (0.100.0 — it is the panel a stranger is talked
@@ -215,6 +246,11 @@
     // key that costs the client nothing is `I`, `J` or `O` and nothing else, and
     // splitting the set to buy one press back would cost more than it saves.
     memory: { code: "KeyK", keyCode: 75, alt: true, shift: false, ctrl: false, label: "Alt+K" },
+    // The sidebar collapse, on the letter for *hide*. The only one of these
+    // that changes what the game itself draws rather than putting something of
+    // ours over it, which is why it is last in the table and last in the
+    // options page's list.
+    sidebar: { code: "KeyH", keyCode: 72, alt: true, shift: false, ctrl: false, label: "Alt+H" },
   };
 
   /**
@@ -276,21 +312,16 @@
   // anywhere from 100 to 500 px across. `min` keeps it sane on the smallest.
   const NATIVE_MARK = { bright: 150, spread: 90, pixels: 2, reach: 0.06, min: 8 };
 
-  // Internal country name -> what a player actually calls it. The client can
-  // localise these itself (props.strings + props.countryUiNames); this table is
-  // the fallback and the source of the side, which the UI strings do not carry.
-  const FACTIONS = {
-    Americans:    { label: "USA",           side: "Allied" },
-    French:       { label: "France",        side: "Allied" },
-    Germans:      { label: "Germany",       side: "Allied" },
-    British:      { label: "Great Britain", side: "Allied" },
-    Alliance:     { label: "Korea",         side: "Allied" },
-    Russians:     { label: "Russia",        side: "Soviet" },
-    Confederation:{ label: "Cuba",          side: "Soviet" },
-    Africans:     { label: "Libya",         side: "Soviet" },
-    Arabs:        { label: "Iraq",          side: "Soviet" },
-    YuriCountry:  { label: "Yuri",          side: "Yuri"   },
-  };
+  // Internal country name -> what a player calls it, which side it plays, and
+  // the client's own flag file for it. The table moved to `src/build-chords.js`
+  // in 1.14.0: the options page needs the same labels to let you read another
+  // country's taunts, and it cannot see anything in this file.
+  //
+  // `{}` rather than a copy when the tables did not load, which is the same
+  // degradation the chord tables take a few thousand lines below — a country
+  // then reads as its rules name, which is worse than a label and better than
+  // a crash.
+  const FACTIONS = (window.__cdcBuildChords && window.__cdcBuildChords.COUNTRIES) || {};
 
   // Thumbnail stored in the catalogue for the options page. Small on purpose —
   // it is the bulk of the extension's storage, and it is only ever shown at
@@ -343,9 +374,12 @@
       gameLoader: false,
       keyBinds: false,
       minimap: false,
+      pointer: false,
       combatantUi: false,
       pingMonitor: false,
       gameMenu: false,
+      hud: false,
+      worldView: false,
     },
     captureSource: null,
     lastMapFile: null,
@@ -391,8 +425,21 @@
     // only for where things are on screen.
     sidebarCard: null,
     sidebarTabs: null,
+    // The client's live `Hud` and `WorldView`. The HUD is rebuilt on every
+    // viewport change and this is replaced with it; the world view outlives a
+    // rebuild but is captured off a prototype hook all the same, because the
+    // two are read together and one held instance beside one live one is the
+    // shape of a stale-coordinate bug.
+    hud: null,
+    worldView: null,
     // The grid on screen right now ({ section }), or null.
     chord: null,
+    // The taunt overlay on screen right now ({ listening }), or null;
+    // `listening` is the slot waiting for a key to rebind, or -1.
+    taunt: null,
+    // slot -> taunt number, the overlay's layout as edited in the options
+    // page. Empty means the shipped one, exactly as `chords` does.
+    taunts: {},
     // The last sidebar-tab press seen ({ code, at }). A second one inside
     // CHORD_WINDOW is a chord rather than two tab switches.
     tap: null,
@@ -400,6 +447,12 @@
     // pointer lock, which is most of a match — `cursorPoint()` prefers the
     // client's own pointer and falls back to this.
     pointer: null,
+    // Where the cursor is while the game holds a pointer lock, integrated by
+    // `trackPointer` from `movementX/movementY`. A real lock freezes the DOM's
+    // `clientX/clientY` at the instant it was taken, so `pointer` above stops
+    // moving for the whole of a match; this does not. Held equal to `pointer`
+    // while the mouse is free, so a lock starts from where the cursor is.
+    lockedPointer: null,
     // The client's `gui/Pointer` for this page: cursor position in every
     // mode, and the lock itself.
     pointerUi: null,
@@ -519,6 +572,11 @@
     // no wire to storage of its own.
     spriteFix: {},
     spriteFixByName: {},
+    // What a render looks like: ore and gem colours, a brightness/contrast pair
+    // per element type, and how far the radar dims explored-but-unlit ground.
+    // Held here on the same terms as spriteFix -- to be handed on -- but with a
+    // second reader, since the radar composites against it live.
+    appearance: {},
     // name -> "#rrggbb" for every colour this client's rules define, plus which
     // of them a lobby offers, and the client version it was read from. Unlike
     // the build roster, whose stamp travels alone because the table is hundreds
@@ -1085,6 +1143,91 @@
         note("SidebarTabs unavailable — no prefix badges on the tabs", "warn");
       }
 
+      // The HUD, for the sidebar collapse. `init` rather than the constructor,
+      // and *after* the original rather than before: `init` is the jsx render
+      // itself, so every ref the collapse reads — `sidebarPower`,
+      // `sidebarButtonsContainer`, `superWeaponTimers` — is still undefined on
+      // the way in and filled on the way out. One hook is every HUD the client
+      // ever builds, which is one per viewport change.
+      const Hud = state.modules.Hud;
+      if (Hud && Hud.prototype && typeof Hud.prototype.init === "function") {
+        const originalHudInit = Hud.prototype.init;
+        Hud.prototype.init = function (...args) {
+          const built = originalHudInit.apply(this, args);
+          state.hud = this;
+          // A rebuilt HUD is an uncollapsed one: the preference is what survives
+          // a rebuild, so it is re-applied to the new objects rather than
+          // remembered on the ones just destroyed.
+          applySidebar();
+          return built;
+        };
+        if (typeof Hud.prototype.destroy === "function") {
+          const originalHudDestroy = Hud.prototype.destroy;
+          Hud.prototype.destroy = function (...args) {
+            if (state.hud === this) state.hud = null;
+            return originalHudDestroy.apply(this, args);
+          };
+        }
+        // **The client's own in-game menu draws inside the container the
+        // collapse hides.** `Hud#showSidebarMenu` renders into
+        // `sidebarMenuContainer`, a child of it — and by the time that runs the
+        // client has already called `WorldInteraction#setEnabled(false)`, which
+        // takes the keyboard away from itself. A collapse left on would leave a
+        // menu nothing on the keyboard can reach and nothing on screen can be
+        // seen. So it lifts for as long as the menu is up, and the sidebar the
+        // player gets back for those few seconds is the one the menu expects.
+        if (
+          typeof Hud.prototype.showSidebarMenu === "function" &&
+          typeof Hud.prototype.hideSidebarMenu === "function"
+        ) {
+          const originalShowMenu = Hud.prototype.showSidebarMenu;
+          Hud.prototype.showSidebarMenu = function (...args) {
+            sidebarLift = true;
+            applySidebar();
+            return originalShowMenu.apply(this, args);
+          };
+          const originalHideMenu = Hud.prototype.hideSidebarMenu;
+          Hud.prototype.hideSidebarMenu = function (...args) {
+            const out = originalHideMenu.apply(this, args);
+            sidebarLift = false;
+            applySidebar();
+            return out;
+          };
+        } else {
+          note("Hud#showSidebarMenu unavailable — the game menu could open inside a hidden sidebar", "warn");
+        }
+        state.hooks.hud = true;
+      } else {
+        note("Hud unavailable — the sidebar cannot be collapsed", "warn");
+      }
+
+      // The world's own viewport, which is the half of the collapse that is not
+      // cosmetic. `computeWorldViewport` is the one place the sidebar's width
+      // leaves the HUD and reaches the renderer, and it is called from both
+      // `WorldView#init` and every viewport change — so overriding it here is
+      // the whole feature for the world: a match started with the collapse on
+      // comes up already widened, a resize keeps it, and there is no second
+      // path of ours to keep in step with the client's.
+      const WorldView = state.modules.WorldView;
+      if (WorldView && WorldView.prototype && typeof WorldView.prototype.computeWorldViewport === "function") {
+        const originalWorldViewport = WorldView.prototype.computeWorldViewport;
+        WorldView.prototype.computeWorldViewport = function (screen, bounds) {
+          state.worldView = this;
+          const box = originalWorldViewport.call(this, screen, bounds);
+          // Width only, and by the client's own formula rather than by adding
+          // the gutter back: a map narrower than the screen is already clamped
+          // to its own bounds, and `min` says that where `+ sidebarWidth` would
+          // have quietly scrolled past the map's edge.
+          if (box && screen && bounds && sidebarCollapsed()) {
+            box.width = Math.min(bounds.width, screen.width);
+          }
+          return box;
+        };
+        state.hooks.worldView = true;
+      } else {
+        note("WorldView unavailable — a collapsed sidebar would leave a blank strip", "warn");
+      }
+
       // The match's network, for the net readout. `PingMonitor#monitor` is
       // called once per match, straight after `initNetStats` constructs the
       // thing — and the instance is the capture: it holds the lockstep manager,
@@ -1205,6 +1348,7 @@
             syncKeyLock();
             // The grid and the queue subscription both point at this match.
             closeChord();
+            closeTaunts();
             renderQueues();
             renderHud();
             // No match, no sidebar: the loop stops rather than reading a
@@ -2525,6 +2669,26 @@
    *
    * @returns {{ src: string, ours: boolean } | null}
    */
+  /**
+   * Push the global brightness/contrast pair onto every picture we show.
+   *
+   * The one dial that needs no render: a filter over a picture already drawn
+   * reaches the stored renders, the map's own preview and the radar alike. It
+   * goes on as a custom property rather than per element because the three
+   * hosts are built in three different places and one of them is rebuilt on
+   * every loading screen -- a variable on the root outlives all of that, and
+   * the badge layers sit outside the filtered image on purpose, since an
+   * annotation should not dim with the map it annotates.
+   *
+   * The per-type dials cannot be done here. They need the element types kept
+   * apart, which is only true while the render is being made.
+   */
+  function repaintAppearance() {
+    const tune = window.__cdcTune;
+    if (!tune) return; // the table is a separate script; without it, no dials
+    document.documentElement.style.setProperty("--cdc-render-filter", tune.globalFilter(state.appearance));
+  }
+
   function previewSource(size) {
     if (hqShown()) {
       // `size` is what was asked for; `slot` is what came back. They differ when
@@ -2893,6 +3057,11 @@
       return;
     }
 
+    if (data.type === "taunt-wav-job") {
+      runTauntWavJob(data.file);
+      return;
+    }
+
     if (data.type === "bulk-run") {
       bulkRender(
         Array.isArray(data.maps) ? data.maps : [],
@@ -2922,6 +3091,13 @@
     }
 
     if (Array.isArray(data.commandKeys)) state.commandKeys = data.commandKeys;
+
+    if (data.taunts) {
+      state.taunts = data.taunts;
+      // An overlay open while the options page is edited redraws against the
+      // new layout rather than holding the one it was built with.
+      renderTaunts();
+    }
 
     if (data.chords) {
       state.chords = data.chords;
@@ -2999,6 +3175,39 @@
       state.spriteFixByName = data.spriteFixByName;
       if (window.__cdcHq && typeof window.__cdcHq.setFixByName === "function") {
         window.__cdcHq.setFixByName(state.spriteFixByName);
+      }
+    }
+
+    // What a render looks like, on the same wire and for the same reason. The
+    // value is compared before anything repaints: the in-game panel writes this
+    // while a slider is being dragged, and the echo of our own write must not
+    // redo work that would land on the same pixels.
+    //
+    // Gated on `globalFilter` and not on `tuneKey`, because those answer
+    // different questions and only one of them is this one. `tuneKey` asks
+    // "would re-rendering this map change it" -- the baked half, staleness. What
+    // repaintAppearance writes is `globalFilter`, so that is what decides whether
+    // writing it again is worth anything. They used to be the same call, and
+    // when the global pair left the stamp this gate would have gone dead: the
+    // one dial that repaints for free would have stopped repainting at all.
+    if (data.appearance) {
+      const tune = window.__cdcTune;
+      const before = tune ? tune.globalFilter(state.appearance) : null;
+      state.appearance = data.appearance;
+      if (window.__cdcHq && typeof window.__cdcHq.setLook === "function") {
+        window.__cdcHq.setLook(state.appearance);
+      }
+      if (!tune || tune.globalFilter(state.appearance) !== before) repaintAppearance();
+      // The radar separately, because the CSS custom property does not reach
+      // it: its canvas composites the per-type dials itself and applies the
+      // global pair at the blit. Unconditional and cheap -- the backing canvas
+      // is stamped with the filters it was built from, so a dial that changed
+      // nothing this panel draws re-blits one image and rebuilds nothing.
+      if (radarVisible) {
+        paintRadar();
+        // The drawer shows the same numbers, and this is the push that carries
+        // a change made on the options page while the panel is open.
+        renderRadarDials();
       }
     }
 
@@ -3319,14 +3528,54 @@
    * up through `save`. The saver is the caller's because there is more than
    * one draggable box now and they do not share a storage key.
    */
-  function makeDraggable(box, grip, save) {
+  function makeDraggable(box, grip, save, ignore) {
     let mode = null;
     let start = null;
+
+    // --- what `report()` reads, and nothing else ------------------------------
+    //
+    // The hit test is known to land on the cursor in a real match — the drawn
+    // cursor rides the same `cursorPoint()` — so the open half of "the panel will
+    // not move" is downstream of it, in here. These counters exist so
+    // `dragReport()` can separate "the press never reached `begin`" from "`begin`
+    // armed the box and `onMove` then did nothing", without pressing anything.
+    // Written by the drag as it runs, never read by it.
+    let listening = false;
+    let begins = 0;
+    let downs = 0;
+    let moves = 0;
+    let lastBegin = null;
+    let lastMove = null;
+
+    /**
+     * Is this press on something the box does not drag from?
+     *
+     * The move listener goes on the *box*, so by default a press anywhere in
+     * a panel moves it. That is right for a panel that only shows things and
+     * wrong the moment one of its children means something under the mouse —
+     * the radar's canvas is a map you click on, and a drag is not what a click
+     * on a tile should do. A selector rather than an element, because the
+     * child is rebuilt with the panel and an element would go stale.
+     */
+    const ignored = (target) =>
+      !!(ignore && target && target.closest && target.closest(ignore));
+
+    /**
+     * Is this press on the resize grip?
+     *
+     * `contains` rather than an identity test, because the grip may have
+     * children and `elementFromPoint` answers with the deepest one. Written
+     * against the grip element the caller handed in, not a selector: this
+     * helper serves four panels and a radar-shaped selector in it would be a
+     * bug the other three inherit.
+     */
+    const onGrip = (target) => !!(grip && target && (target === grip || (grip.contains && grip.contains(target))));
 
     // Takes a point rather than an event: with the mouse locked, an event's
     // coordinates are frozen and the only live position is the game cursor.
     const onDown = (at, which) => {
       if (!at) return;
+      downs++;
       mode = which;
       start = {
         x: at.x,
@@ -3338,14 +3587,20 @@
       };
       window.addEventListener("mousemove", onMove, true);
       window.addEventListener("mouseup", onUp, true);
+      listening = true;
     };
 
     const onMove = (e) => {
+      // Counted before the guard, so a move that fires while nothing is armed is
+      // distinguishable from a move listener that was never attached at all.
+      moves++;
       if (!mode) return;
       const at = cursorPoint();
+      lastMove = { mode, at: at ? Math.round(at.x) + "," + Math.round(at.y) : "none — cursorPoint gave nothing" };
       if (!at) return;
       const dx = at.x - start.x;
       const dy = at.y - start.y;
+      lastMove.by = Math.round(dx) + "," + Math.round(dy);
       // A move sets position only. Writing the measured width and height back
       // on every move would pin a box whose size is its content — the queue
       // panel grows a row when a factory starts building.
@@ -3376,6 +3631,7 @@
       mode = null;
       window.removeEventListener("mousemove", onMove, true);
       window.removeEventListener("mouseup", onUp, true);
+      listening = false;
     };
 
     // The game canvas treats mousedown as a command, so swallow ours.
@@ -3388,6 +3644,11 @@
         if (e.target === grip || mouseCaptured()) return;
         e.preventDefault();
         e.stopPropagation();
+        // Swallowed either way, dragged only if the press was not on an
+        // ignored child: the client reads a stray mousedown as a world
+        // command, so letting one through would order units to wherever the
+        // panel happens to sit on screen.
+        if (ignored(e.target)) return;
         onDown({ x: e.clientX, y: e.clientY }, "move");
       },
       true
@@ -3405,7 +3666,53 @@
       );
     }
 
-    return { begin: (at) => onDown(at, "move") };
+    // `begin` takes the target as well as the point, because the locked-mouse
+    // path has already done the hit test and this is the only way the same
+    // exclusion can reach it — a panel's own mousedown never fires under a
+    // pointer lock, so without this the canvas would be draggable exactly
+    // while a match is being played and inert everywhere else.
+    return {
+      begin: (at, target) => {
+        begins++;
+        const skip = ignored(target);
+        lastBegin = {
+          at: at ? Math.round(at.x) + "," + Math.round(at.y) : "none — begin was handed no point",
+          target: (target && (target.className || target.tagName)) || "nothing",
+          ignored: skip,
+        };
+        if (skip) return;
+        // The grip resizes and everything else moves -- the same split the two
+        // DOM listeners above make, and the reason this argument exists at all.
+        //
+        // It used to be "move" unconditionally, so under a pointer lock -- which
+        // is the whole of a match -- NO floating panel could be resized: not the
+        // radar, and not the queue, net or memory panels either. That predates
+        // the radar; it has been true since `begin` was written.
+        onDown(at, onGrip(target) ? "resize" : "move");
+      },
+      /**
+       * This box's own drag state, for `__cdc.drag()`. It copies values out and
+       * nothing else — it never arms, disarms, presses or moves anything, so a
+       * player reading the report cannot perturb the thing being diagnosed.
+       *
+       * `begins` without `downs` means `begin` was reached and refused the press
+       * (`lastBegin.ignored`, or no point to act on); `downs` without `moves`
+       * means the box armed and the move listener never fired; `moves` climbing
+       * with `lastMove.by` stuck at 0,0 means it fired and `cursorPoint()` never
+       * moved.
+       */
+      report: () => ({
+        armed: mode || "no",
+        listening,
+        begins,
+        downs,
+        moves,
+        start: start ? Math.round(start.x) + "," + Math.round(start.y) : "none",
+        from: start ? start.left + "," + start.top : "none",
+        lastBegin,
+        lastMove,
+      }),
+    };
   }
 
   function applyRect(box, rect) {
@@ -3492,6 +3799,2870 @@
     return state.ingameVisible;
   }
 
+  // --- The in-game radar ---
+  //
+  // Our own radar, from our own render. The client's own cannot be improved past
+  // a point: MinimapRenderer#renderTiles makes one pass and reads one colour per
+  // tile, so terrain type, shroud state and ownership have to partition that one
+  // value instead of layering. A canvas we own has no such limit.
+  //
+  // This is the panel and its geometry only. What it draws on top — shroud,
+  // units, tech icons, the viewport rectangle — comes next, and the questions
+  // those need answered are collected by src/radar-probe.js while a match runs.
+
+  const RADAR_LAYOUT_KEY = "cdc.radarRect";
+  // A floor, not a size: below this the picture is too small for anything drawn
+  // on it to mean much, and the pick buffer starts rounding several tiles into
+  // one pixel.
+  const RADAR_MIN = { width: 160, height: 120 };
+
+  /**
+   * The width the layered terrain render is taken at, once per map.
+   *
+   * A layered render costs seconds, and the panel is resizable, so the two
+   * cannot be tied together -- a drag that re-rendered would freeze the match.
+   * The source is therefore taken once at a width that covers any sane panel
+   * and the composite scales down from it, which makes a resize a few
+   * drawImages instead of a render.
+   *
+   * 1280 rather than the render's own ~3000: at the panel sizes this is for,
+   * anything above it is detail no pixel survives to show, and the stack is
+   * held in memory for the whole match. Dragging the panel wider than this in
+   * device pixels upscales and goes soft, which is the right way round -- a
+   * soft radar beats a stalled one.
+   */
+  const RADAR_SOURCE_WIDTH = 1280;
+
+  let radarEl = null;
+  let radarVisible = false;
+  let radarGeo = null; // __cdcHq.geometry for the map on screen
+  let radarPlaced = null; // the letterboxed picture inside the stage
+  let radarDrag = null; // makeDraggable's handle, for the locked-mouse path
+  let radarSource = null; // { mapFile, layers } — the untuned layered render
+  let radarBacking = null; // { canvas, stamp, source } — the composited terrain
+  let radarRendering = false; // a layered render is in flight
+  let radarFailed = null; // { mapFile, message } — so a different map retries
+  let radarPick = null; // { buffer, stamp, mapFile } — which cell each pixel is
+  let radarTiles = null; // { mapFile, list } — the map's cells, walked once
+  let radarTileSource = ""; // which walk found them, because one of them lies
+  let radarShroud = null; // { mapFile, stride, seen, gapped, revision }
+  let radarGap = null; // { canvas, stamp } — the dim a gap field puts on ground
+  let radarCover = null; // { canvas, stamp } — the black the shroud paints
+  let radarPickNoted = ""; // the last coverage line said, so it is said once
+  let radarShroudNoted = -1; // the reveal step already reported, in 1/20ths
+  let radarLastGapped = false; // whether a gap field was up when that was said
+  let radarShroudOutside = false; // a cell landed off the mask, and it was named
+  let radarSweepTimer = 0;
+
+  /**
+   * `ShroudFlag.Darken`, the client's only shroud flag.
+   *
+   * Measured rather than assumed: src/radar-probe.js read the live enum out of
+   * `game/map/MapShroud` and it holds exactly one member, `Darken: 8`. All
+   * three of the client's writers of it are `GapGeneratorTrait` /
+   * `MapShroudTrait#markOwnGapTiles`, which is why this constant *is* the
+   * gap-field test and no GAGAP building has to be found or its radius
+   * computed.
+   */
+  const SHROUD_DARKEN = 8;
+
+  /**
+   * How often the shroud is re-swept while the panel is open.
+   *
+   * A few times a second, not per frame: what it costs is one pass over every
+   * cell of the map, and what it buys at 60Hz over 3Hz is nothing a player can
+   * see — scouting reveals ground at walking pace.
+   */
+  const RADAR_SWEEP_MS = 300;
+
+  /**
+   * How often the panel is repainted while it is open.
+   *
+   * Units move and the shroud does not, so they cannot share a cadence: a blip
+   * redrawn three times a second steps across the map instead of crossing it.
+   * The tick is the shorter of the two and the shroud sweep runs on every
+   * RADAR_SWEEP_EVERY-th one, which keeps both on one timer -- and one timer is
+   * the thing that cannot be left running after the panel closes.
+   *
+   * 100ms rather than a frame: a blip is drawn at its tile, and no unit in this
+   * game crosses a tile in under a couple of hundred milliseconds, so the
+   * frames in between would redraw the same picture. That is also why the plan's
+   * rAF loop is not here -- it was written before the blip was per-tile.
+   */
+  const RADAR_TICK_MS = 100;
+  const RADAR_SWEEP_EVERY = Math.round(RADAR_SWEEP_MS / RADAR_TICK_MS);
+  /**
+   * How often the ore is re-read, in ticks -- once a second.
+   *
+   * Far slower than the shroud on purpose. A shroud edge moves with a unit and
+   * has to keep up with one; ore changes at the speed a harvester empties a
+   * cell, and reading it at the shroud's rate would be `getObjectsOnTile`
+   * twenty thousand times a second to watch paint dry.
+   */
+  const RADAR_ORE_EVERY = Math.round(1000 / RADAR_TICK_MS);
+  let radarTicks = 0;
+  /**
+   * The radar flag as of the last tick, so a change can be told from a repeat.
+   *
+   * `""` rather than null: that is what `radarOffline()` answers when the radar
+   * is up, and the panel is opened by a `renderRadar()` that has already read
+   * the flag -- so the first tick of a panel opened over a working radar is not
+   * a flip.
+   */
+  let radarOfflineLast = "";
+
+  /**
+   * The title bar's height — the one piece of chrome that is always there.
+   *
+   * `getBoundingClientRect` and not `offsetHeight`, here and everywhere else in
+   * this arithmetic. The bar is 11px text at line-height 1.4 inside 2px of
+   * padding, so its real height has a fraction in it; `offsetHeight` rounds that
+   * away, and a rounded chrome under an exact stage height is a pixel of map
+   * lost on every press of the toggle. Measured against a browser, 2026-08-28:
+   * the rounded arithmetic was out by one on the first toggle.
+   */
+  function radarBarHeight() {
+    const bar = radarEl && radarEl.querySelector(".cdc-radar-bar");
+    return bar ? bar.getBoundingClientRect().height : 0;
+  }
+
+  /**
+   * Everything in the panel that is not the picture: the bar, plus the drawer
+   * while it is open.
+   *
+   * Measured off the DOM rather than read off `radarDialsOpen`, because a closed
+   * drawer is `display: none` and therefore already 0 — one source instead of a
+   * flag and a stylesheet that can disagree. That only became true with the
+   * `display: none` now in the stylesheet; before it, `renderRadarDials()` was
+   * the only thing that ever hid the drawer and `renderRadar()` returns ahead of
+   * it on every refusal it has.
+   */
+  function radarChromeHeight() {
+    const dials = radarEl && radarEl.querySelector(".cdc-radar-dials");
+    return radarBarHeight() + (dials ? dials.getBoundingClientRect().height : 0);
+  }
+
+  /**
+   * The panel's own border, per axis, in CSS px.
+   *
+   * `sizeRadarPanel` derives the panel's height from the MAP's, and the panel
+   * is border-box (see the stylesheet, where the why lives), so the border is a
+   * term in that sum: the map, the chrome, and the frame around both.
+   *
+   * `offsetWidth - clientWidth` rather than a computed style or a literal 2:
+   * both are rounded from the SAME fractional content width, so the roundings
+   * cancel and what is left is the border exactly, whatever the stylesheet has
+   * made it.
+   */
+  function radarBorder() {
+    if (!radarEl) return { x: 0, y: 0 };
+    return {
+      x: radarEl.offsetWidth - radarEl.clientWidth,
+      y: radarEl.offsetHeight - radarEl.clientHeight,
+    };
+  }
+
+  /**
+   * How near an edge a release has to land for the panel to stick to it.
+   *
+   * Just over the 14px grip, so a resize that ends with the grip against the
+   * edge is read as "against the edge" rather than as three pixels short of it.
+   */
+  const RADAR_SNAP = 16;
+
+  /**
+   * Which viewport edge a box is nearer on each axis, and the gap to it.
+   *
+   * The whole of the stored shape: a panel that remembers "12px in from the
+   * right" keeps its right edge where the user put it when the window changes
+   * size or the panel itself grows, while one that remembers `left: 1600` does
+   * not. Per axis and independent, so a corner needs no case of its own.
+   *
+   * The nearer edge wins, ties going to left/top. Deterministic and
+   * thresholdless -- at the viewport the panel was last placed in, the anchor
+   * this derives puts it back in exactly the same pixels, which is what makes
+   * it safe to run on read against a value written by an older build.
+   *
+   * Offsets are clamped non-negative, so a box already partly off screen
+   * converts to one flush against the edge it went off. That jump is
+   * deliberate: it is the only way back for a panel dragged out of reach.
+   */
+  function radarAnchorFor(box) {
+    const rightGap = window.innerWidth - box.left - box.width;
+    const bottomGap = window.innerHeight - box.top - box.height;
+    const nearRight = rightGap < box.left;
+    const nearBottom = bottomGap < box.top;
+    return {
+      ax: nearRight ? "right" : "left",
+      dx: Math.max(0, nearRight ? rightGap : box.left),
+      ay: nearBottom ? "bottom" : "top",
+      dy: Math.max(0, nearBottom ? bottomGap : box.top),
+    };
+  }
+
+  /**
+   * The outer box a stored layout will produce, which is what an anchor has to
+   * be measured against.
+   *
+   * The two stored sizes are not in the same box, which is why only one of them
+   * has anything added: `width` goes straight into `style.width` and the panel
+   * is border-box, so it IS the outer width, while `stageHeight` is the map's
+   * and the panel around it is that plus the chrome and the frame — the sum
+   * `sizeRadarPanel` is about to write. Getting this wrong moves the panel by
+   * the size of its own border on every read of a stored layout.
+   */
+  function radarOuterOf(box) {
+    return {
+      left: box.left,
+      top: box.top,
+      width: box.width,
+      height: box.stageHeight + radarChromeHeight() + radarBorder().y,
+    };
+  }
+
+  /** A stored or defaulted `{left, top, width, stageHeight}`, as an anchor. */
+  function radarAnchored(box) {
+    return { ...radarAnchorFor(radarOuterOf(box)), width: box.width, stageHeight: box.stageHeight };
+  }
+
+  /**
+   * The one writer of the panel's `left` and `top`.
+   *
+   * The position is DERIVED and never stored: the anchored edge is pinned and
+   * the panel grows away from it, so a right-anchored panel that gets wider
+   * grows leftwards into free space instead of pushing its own grip off the
+   * screen. The clamp is the other half of it -- nothing else in this file kept
+   * the panel inside the viewport, so a drag could put it somewhere with no way
+   * back, and `scripts/drive-drag.mjs` had to park the panel to reach it at all.
+   *
+   * The size is measured off the panel as it stands rather than derived from
+   * the stored numbers, so the `ResizeObserver` in `buildRadar` can call this in
+   * the middle of a grip drag and have the pinned edge hold at every width the
+   * drag passes through. It writes position and nothing else, which is what
+   * keeps that observer from feeding itself.
+   */
+  function placeRadarFromAnchor(anchor) {
+    if (!radarEl) return null;
+    const at = anchor || radarRect();
+    const box = radarEl.getBoundingClientRect();
+    const put = {
+      left: at.ax === "left" ? at.dx : window.innerWidth - at.dx - box.width,
+      top: at.ay === "top" ? at.dy : window.innerHeight - at.dy - box.height,
+    };
+    put.left = Math.min(Math.max(0, put.left), Math.max(0, window.innerWidth - box.width));
+    put.top = Math.min(Math.max(0, put.top), Math.max(0, window.innerHeight - box.height));
+    radarEl.style.left = put.left + "px";
+    radarEl.style.top = put.top + "px";
+    return put;
+  }
+
+  /**
+   * The stored layout, with two legacy shapes converted on the way out.
+   *
+   * `stageHeight` is the marker of the new shape — the height of the MAP, not of
+   * the panel around it, which is what makes the bar and the drawer additive
+   * (see `sizeRadarPanel`). A value without it was written by a build that stored
+   * the panel's outer height, so the bar comes off it here.
+   *
+   * The conversion is deliberately `height - bar` and not `height - bar - border`:
+   * both the old code and `sizeRadarPanel` write into `style.height`, so dropping
+   * exactly the bar reproduces the previous `style.height` to the pixel and
+   * nothing jumps on upgrade. The stage then measures two pixels (the panel's
+   * border) under the converted number until the next drag re-measures it.
+   *
+   * `ax` is the marker of the second: a value without it stores an absolute
+   * `left`/`top`, and is converted to the anchor nearest each edge. The two are
+   * independent fields and compose, so a layout written before either change
+   * passes through both on one read.
+   *
+   * One key, not two: a versioned key would have to live for ever in every
+   * census and in `resetRadarLayout`.
+   */
+  function radarSavedRect() {
+    let rect = null;
+    try {
+      const raw = localStorage.getItem(RADAR_LAYOUT_KEY);
+      rect = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      note("stored radar layout is unreadable, ignoring it", "warn");
+      return null;
+    }
+    if (!rect) return null;
+    const stageHeight =
+      typeof rect.stageHeight === "number"
+        ? rect.stageHeight
+        : typeof rect.height === "number"
+        ? rect.height - radarBarHeight()
+        : null;
+    if (stageHeight === null) return null;
+    if (typeof rect.ax === "string") {
+      return { ax: rect.ax, dx: rect.dx, ay: rect.ay, dy: rect.dy, width: rect.width, stageHeight };
+    }
+    return radarAnchored({ left: rect.left, top: rect.top, width: rect.width, stageHeight });
+  }
+
+  /**
+   * Persist the layout after a drag: an anchor and a picture, not a position
+   * and a panel.
+   *
+   * `rect` arrives from `makeDraggable`'s `onUp` as the measured OUTER box, and
+   * three things happen to it here.
+   *
+   * The anchor is taken from the box as it sits, and a gap under `RADAR_SNAP`
+   * becomes 0 — which IS "snapped", with no second flag to fall out of sync
+   * with the offset. On release only, and per axis, so a corner snap is nothing
+   * but both axes being near an edge at once. No live highlight goes with it: a
+   * real pointer lock makes every DOM hover state inert, and the settle on
+   * mouseup is the feedback instead.
+   *
+   * The stage's own measurement is taken instead of subtracting chrome from the
+   * outer height: the resize has already landed in the DOM by the time this is
+   * called, so the stage can simply be asked. `height` is not written at all —
+   * its absence is what tells the next read this is the new shape.
+   *
+   * Nothing here corrects for the border any more, and nothing should: the
+   * panel is border-box, so what `makeDraggable` measured is the same box
+   * `renderRadar` writes back. A correction here could not work in any case —
+   * this is called for a move and for a resize alike, and it cannot tell one
+   * from the other, so a term that is right for a resize would shrink the panel
+   * on every move.
+   *
+   * The measured box is preferred over `rect` where there is one: `rect` comes
+   * from `offsetLeft`/`offsetWidth` and is rounded, and a rounded gap re-derives
+   * a position up to a pixel from where the panel was let go.
+   */
+  function storeRadarRect(rect) {
+    const stage = radarEl && radarEl.querySelector(".cdc-radar-stage");
+    const outer = radarEl ? radarEl.getBoundingClientRect() : rect;
+    const anchor = radarAnchorFor(outer);
+    const at = {
+      ax: anchor.ax,
+      dx: anchor.dx < RADAR_SNAP ? 0 : anchor.dx,
+      ay: anchor.ay,
+      dy: anchor.dy < RADAR_SNAP ? 0 : anchor.dy,
+      width: outer.width,
+      stageHeight: stage ? stage.getBoundingClientRect().height : rect.height - radarChromeHeight(),
+    };
+    // The write, the placement and the snap to the map's shape are one call,
+    // because they are one decision. The grip stays FREEFORM while it is being
+    // dragged -- fighting a live resize is worse than a black margin, which is
+    // `placeRadarCanvas`'s own reasoning -- and the map's shape is imposed here,
+    // on release, where the panel has stopped moving. That call is also what
+    // makes the snapped POSITION visible on mouseup: it is the one writer of
+    // `left`/`top`, and nothing here may write them itself.
+    return applyRadarScale(at.stageHeight, at, true);
+  }
+
+  /**
+   * Where the radar opens.
+   *
+   * Over the client's own radar by default, which is what calling it a clone
+   * ought to mean — `minimapRect()` already knows where that is, in the same
+   * pixel space this panel lives in. A drag wins over it, as everywhere else,
+   * because UI scale and taste both vary.
+   *
+   * Both fallbacks are re-read as the STAGE's size, since that is what this
+   * function now answers with. `minimapRect()` is untouched — it is shared with
+   * the preview panel — so its `height` is mapped over here, and the effect is
+   * that the picture matches the client radar's footprint exactly, with the bar
+   * adding its own ~20px on top rather than eating into it.
+   */
+  function radarRect() {
+    const saved = radarSavedRect();
+    return saved || radarAnchored(radarFallbackRect());
+  }
+
+  /**
+   * Where the panel goes with nothing stored, as a plain box.
+   *
+   * Split out of `radarRect` because the size dial's right button needs the same
+   * answer without going through storage: "put it back" means this, and a second
+   * copy of the numbers is how two surfaces start disagreeing about what the
+   * default is.
+   */
+  function radarFallbackRect() {
+    const mini = minimapRect();
+    return mini
+      ? { left: mini.left, top: mini.top, width: mini.width, stageHeight: mini.height }
+      : {
+          left: Math.max(0, window.innerWidth - 300),
+          top: 60,
+          width: 280,
+          stageHeight: 220,
+        };
+  }
+
+  /**
+   * Write the panel's outer height from the height the MAP is to have.
+   *
+   * The one writer of `.cdc-radar`'s height, and the reason the dials drawer is
+   * additive: the number that persists is the stage's, so chrome is added to it
+   * rather than taken out of it, and opening the drawer grows the panel instead
+   * of shrinking the picture under the user's hand.
+   *
+   * An outer height is still what gets written, with `.cdc-radar-stage` left at
+   * `flex: 1`, rather than sizing the stage directly. That is what keeps this
+   * change inside the radar: `makeDraggable`'s `onMove` writes the outer box
+   * live through `applyRect` and four panels share that helper, so a flexing
+   * stage absorbs those writes without the helper knowing a drawer exists.
+   *
+   * `RADAR_MIN.height` clamps the stage now, not the panel — a floor on the
+   * picture is what it was always for.
+   *
+   * Returns `{before, after}`: the single point at which this panel's height
+   * changes, so anchoring an edge later is a shift of `top` by the difference
+   * rather than a rewrite of this.
+   */
+  function sizeRadarPanel(stageHeight) {
+    if (!radarEl) return null;
+    const before = radarEl.getBoundingClientRect().height;
+    // The border is in the sum because the panel is border-box: `style.height`
+    // is the OUTER height here, and the map plus the chrome is what has to fit
+    // inside the frame rather than instead of it.
+    radarEl.style.height =
+      Math.max(RADAR_MIN.height, stageHeight) + radarChromeHeight() + radarBorder().y + "px";
+    return { before, after: radarEl.getBoundingClientRect().height };
+  }
+
+  /**
+   * How much of the viewport's height the size dial's top end reaches.
+   *
+   * A starting value, not a measured one: it is large enough to read a whole map
+   * off and short of the height at which the panel owns the screen. It is a
+   * dial, so moving it is one number.
+   */
+  const RADAR_SCALE_CAP = 0.7;
+
+  /** The interval the size dial spans: the picture's own floor, up to that cap. */
+  function radarSizeRange() {
+    return [
+      RADAR_MIN.height,
+      Math.max(RADAR_MIN.height, Math.round(window.innerHeight * RADAR_SCALE_CAP)),
+    ];
+  }
+
+  /** The picture's height at `fraction` along the size dial's track. */
+  function radarSizeValue(fraction) {
+    const range = radarSizeRange();
+    const at = Math.min(1, Math.max(0, fraction));
+    return Math.round(range[0] + at * (range[1] - range[0]));
+  }
+
+  /** Where a picture height sits along that track, 0..1 -- what the fill draws. */
+  function radarSizeAt(stageHeight) {
+    const range = radarSizeRange();
+    const span = range[1] - range[0];
+    return span ? Math.min(1, Math.max(0, (stageHeight - range[0]) / span)) : 0;
+  }
+
+  /**
+   * The shape of the picture the renderer keeps for the map on screen, or 0
+   * when there is no map to have one.
+   *
+   * `radarGeo` is `__cdcHq.geometry()`'s own answer -- the rectangle the render
+   * actually keeps, `cropRect()` over the playable area plus the headroom band --
+   * so this is the MAP's proportion and not a constant. When that crop tightens,
+   * this tightens with it and nothing in this file changes.
+   */
+  function radarAspect() {
+    return radarGeo && radarGeo.cropHeight ? radarGeo.cropWidth / radarGeo.cropHeight : 0;
+  }
+
+  /**
+   * The panel's width for a given picture height: one degree of freedom.
+   *
+   * The scale IS `stageHeight`, and the width follows from the map's shape --
+   * which is what kills the letterbox. `placeRadarCanvas` fits the render inside
+   * the stage, so equal aspects make its margins zero by arithmetic and that
+   * function needs no change at all. It stays the fallback for the case this one
+   * cannot serve: with no map yet, or while the terrain is still drawing, there
+   * is no aspect to follow and the stored width stands.
+   *
+   * The border is a term for the same reason it is one in `sizeRadarPanel`: the
+   * panel is border-box, so `style.width` is the OUTER width while the aspect
+   * belongs to the STAGE inside the frame. Leaving it out puts the picture two
+   * pixels off its own shape and re-opens a letterbox of exactly that width.
+   *
+   * The clamp is `[RADAR_MIN.width, innerWidth]`: a wide map at a large scale
+   * would otherwise derive a panel wider than the screen, which the placement
+   * clamp could only pin against the left edge.
+   */
+  function radarWidthFor(stageHeight, fallbackWidth) {
+    const aspect = radarAspect();
+    const want = aspect ? Math.round(stageHeight * aspect) + radarBorder().x : fallbackWidth;
+    return Math.min(Math.max(RADAR_MIN.width, want), Math.max(RADAR_MIN.width, window.innerWidth));
+  }
+
+  /**
+   * The one place the panel's size changes, and the one writer of its width.
+   *
+   * The chain is the whole sizing contract in one call: derive the width from
+   * the map, write it, hand the height to `sizeRadarPanel` and the position to
+   * `placeRadarFromAnchor` -- the single writers of each -- and persist. Nothing
+   * else in this file writes `width`, `height`, `left` or `top` on this panel.
+   *
+   * `at` is the anchor the panel is placed by, and the caller passes the one it
+   * has already read so that a store and a placement cannot disagree. It is
+   * carried through unchanged rather than re-derived from the DOM: the panel
+   * grows away from its pinned edge, and re-measuring after the growth would let
+   * the placement clamp move the edge the user chose.
+   *
+   * `persist` is off for a render. `renderRadar` runs on every tick that changes
+   * anything, and a width derived from the map is not a width the user chose --
+   * writing it back would overwrite the freeform fallback on every frame, and
+   * that fallback is the only width a map with no readable geometry has.
+   */
+  function applyRadarScale(stageHeight, at, persist) {
+    if (!radarEl) return null;
+    const anchor = at || radarRect();
+    const stage = Math.max(RADAR_MIN.height, stageHeight);
+    const width = radarWidthFor(stage, anchor.width);
+    radarEl.style.width = width + "px";
+    sizeRadarPanel(stage);
+    placeRadarFromAnchor(anchor);
+    const saved = {
+      ax: anchor.ax,
+      dx: anchor.dx,
+      ay: anchor.ay,
+      dy: anchor.dy,
+      width,
+      stageHeight: stage,
+    };
+    if (persist) {
+      try {
+        localStorage.setItem(RADAR_LAYOUT_KEY, JSON.stringify(saved));
+      } catch (e) {
+        note("could not persist the radar layout", "warn");
+      }
+    }
+    return saved;
+  }
+
+  function buildRadar() {
+    const el = document.createElement("div");
+    el.className = "cdc-radar";
+    el.innerHTML =
+      '<div class="cdc-radar-bar">' +
+      '<span class="cdc-radar-title">Radar</span>' +
+      '<span class="cdc-radar-at"></span>' +
+      '<span class="cdc-radar-dials-toggle" title="the dials that cost no re-render">dials</span>' +
+      "</div>" +
+      '<div class="cdc-radar-stage">' +
+      '<canvas class="cdc-radar-canvas"></canvas>' +
+      '<div class="cdc-radar-empty"></div>' +
+      '<div class="cdc-radar-grip" title="drag the bar to move · drag the corner to resize"></div>' +
+      "</div>" +
+      '<div class="cdc-radar-dials"></div>';
+    chordLayer().appendChild(el);
+    // One call, not two: makeDraggable puts the move listener on the *box* and
+    // the resize listener on the grip, so calling it twice would give this panel
+    // two move handlers racing over one drag.
+    //
+    // The fourth argument is what keeps that from swallowing the map. A press
+    // anywhere in the box moves it, and the canvas now has a cell under every
+    // pixel — so the canvas is excluded, and the bar and the letterbox margin
+    // are what the panel is dragged by.
+    radarDrag = makeDraggable(
+      el,
+      el.querySelector(".cdc-radar-grip"),
+      storeRadarRect,
+      ".cdc-radar-canvas"
+    );
+
+    // A resize has to reach the canvas while it is happening, and makeDraggable
+    // only calls `save` on mouseup -- it has no per-move hook, and giving it one
+    // would change a helper five other panels share. A ResizeObserver on the
+    // stage is the smaller answer and a wider one: it also catches the UI-scale
+    // changes and viewport rebuilds that move this box without anyone dragging
+    // it.
+    //
+    // It cannot feed itself: the canvas is absolutely positioned, so resizing it
+    // never changes the size of the stage being observed.
+    if (typeof ResizeObserver === "function") {
+      new ResizeObserver(() => {
+        if (!radarVisible) return;
+        // Before the canvas, and outside the `radarGeo` guard: a panel with no
+        // map to draw still has an anchored edge to hold. This is what makes a
+        // right-anchored panel grow leftwards under a live grip drag —
+        // `applyRect` writes the pre-drag `left` and the new width, and this
+        // re-derives `left` from the anchor before the frame is painted.
+        placeRadarFromAnchor();
+        if (!radarGeo) return;
+        placeRadarCanvas();
+        paintRadar();
+      }).observe(el.querySelector(".cdc-radar-stage"));
+    }
+    return el;
+  }
+
+  // Nothing in this file re-placed a panel when the viewport changed, so an
+  // anchored edge would come unstuck the moment the window was resized — and
+  // entering or leaving fullscreen is a resize, which is the common case in a
+  // match. One listener rather than one per panel: the other three floating
+  // boxes still store an absolute position and have nothing to re-derive.
+  window.addEventListener("resize", () => {
+    if (!radarVisible || !radarEl) return;
+    placeRadarFromAnchor();
+  });
+
+  /**
+   * Fit the render's aspect inside the stage, centred.
+   *
+   * Letterboxed rather than stretched, and the box is not forced back to the
+   * map's shape while it is being dragged: fighting a resize is worse than a
+   * black margin. One uniform scale is also what keeps the pick buffer to a
+   * single factor, which is what makes a click one array read.
+   */
+  function placeRadarCanvas() {
+    if (!radarEl || !radarGeo) return null;
+    const stage = radarEl.querySelector(".cdc-radar-stage");
+    const canvas = radarEl.querySelector(".cdc-radar-canvas");
+    const box = { width: stage.clientWidth, height: stage.clientHeight };
+    if (!box.width || !box.height) return null;
+    const aspect = radarGeo.cropWidth / radarGeo.cropHeight;
+    let width = box.width;
+    let height = Math.round(width / aspect);
+    if (height > box.height) {
+      height = box.height;
+      width = Math.round(height * aspect);
+    }
+    const left = Math.round((box.width - width) / 2);
+    const top = Math.round((box.height - height) / 2);
+    // Backing store in device pixels, CSS size in CSS pixels. The client never
+    // calls setPixelRatio, so this panel's sharpness is ours alone to get right.
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.round(width * dpr));
+    canvas.height = Math.max(1, Math.round(height * dpr));
+    canvas.style.left = left + "px";
+    canvas.style.top = top + "px";
+    canvas.style.width = width + "px";
+    canvas.style.height = height + "px";
+    radarPlaced = { left, top, width, height, dpr };
+    return radarPlaced;
+  }
+
+  /** The map the radar is for: the live match's, else the last one parsed. */
+  function radarMapFile() {
+    const ui = state.combatant;
+    const live = ui && ui.game && ui.game.map && ui.game.map.mapFile;
+    return live || state.mapFile || null;
+  }
+
+  /**
+   * Why the radar has no picture to give right now, or "" when it has one.
+   *
+   * One flag, read off the client: `player.radarTrait.isDisabled()`, which the
+   * client's own `game/api/GameApi` publishes as
+   * `radarDisabled: !!t.radarTrait?.isDisabled()`. It is set by
+   * `RadarTrait#updateRadarForPlayer` when ANY of three things holds -- no
+   * building with `rules.radar` that is not chrono-warped out, `powerTrait.level
+   * === PowerLevel.Low`, or an enemy Lightning Storm overhead -- and not one of
+   * the three is reimplemented here, on purpose. A spy reaches us through the
+   * second (`AgentTrait` calls `powerTrait.setBlackoutFor` on a power plant), so
+   * the one flag already covers every path that takes the game's own minimap
+   * away, while a copy of the rule would be three ways to disagree with it.
+   *
+   * The reason this is a defect and not a preference: our picture is drawn from
+   * our own render, so a panel that kept drawing while the client's minimap is
+   * covered would be strictly better than the game's own -- which is the maphack
+   * this whole panel is built not to be.
+   *
+   * **An absent trait fails closed**, and says something different when it does.
+   * A live player carrying no `radarTrait` is a client that moved the flag, and
+   * the constraint outranks the feature: that costs us the picture rather than
+   * silently handing back the advantage.
+   *
+   * Out of a match there is no combatant, no flag, and nothing to gate: the
+   * panel is a viewer over the last map played, which is the state every other
+   * refusal here is already written for.
+   */
+  function radarOffline() {
+    const ui = state.combatant;
+    if (!ui) return "";
+    const trait = ui.player && ui.player.radarTrait;
+    if (!trait || typeof trait.isDisabled !== "function") {
+      return "the client's radar flag could not be read";
+    }
+    return trait.isDisabled() ? "no radar — build one, restore power, or wait out the storm" : "";
+  }
+
+  function renderRadar() {
+    if (!radarVisible) {
+      if (radarEl) radarEl.style.display = "none";
+      return;
+    }
+    if (!radarEl) radarEl = buildRadar();
+    radarEl.style.display = "flex";
+
+    const rect = radarRect();
+    // Size and position in one call, because they are one derivation: the width
+    // comes from the map's shape, the height from the stored picture, and the
+    // anchored edge from the two of them. Not persisted -- this runs on every
+    // refresh, and a width the map derived is not a width the user chose.
+    applyRadarScale(rect.stageHeight, rect, false);
+
+    const empty = radarEl.querySelector(".cdc-radar-empty");
+    const canvas = radarEl.querySelector(".cdc-radar-canvas");
+    const mapFile = radarMapFile();
+    const hq = window.__cdcHq;
+
+    // Each refusal says which one it is. A radar that is simply blank cannot be
+    // told from a radar that is broken, and the reasons it can have nothing to
+    // draw want different answers from the player.
+    let reason = "";
+    if (!hq || typeof hq.geometry !== "function") reason = "the renderer did not load";
+    else if (!mapFile) reason = "no map yet — play a match";
+    // The game's own rule, after the two rungs that are about us rather than
+    // about the match: this is the one case where there IS a picture to draw
+    // and drawing it is the thing forbidden.
+    if (!reason) reason = radarOffline();
+
+    if (!reason) {
+      try {
+        radarGeo = hq.geometry(mapFile);
+      } catch (e) {
+        // Not silent: geometry that throws is a renderer change, and the panel
+        // saying so is how it gets noticed rather than showing an empty box.
+        note(`radar geometry unreadable — ${e && e.message}`, "warn");
+        reason = "the map's geometry could not be read";
+      }
+    }
+
+    // The terrain behind all of it. Started from here rather than from the
+    // toggle because this is the one place that knows the map is readable, and
+    // it is reached again on every map change; `ensureRadarSource` is the guard
+    // against starting a second one, and it calls back here when it settles.
+    if (!reason) {
+      if (radarFailed && radarFailed.mapFile === mapFile) {
+        reason = `the terrain could not be drawn — ${radarFailed.message}`;
+      } else if (radarRendering) {
+        reason = "drawing the terrain…";
+      } else if (!radarSource || radarSource.mapFile !== mapFile) {
+        ensureRadarSource();
+        reason = "drawing the terrain…";
+      }
+    }
+
+    if (reason) {
+      radarGeo = null;
+      empty.textContent = reason;
+      empty.style.display = "flex";
+      canvas.style.display = "none";
+      return;
+    }
+
+    empty.style.display = "none";
+    canvas.style.display = "block";
+    renderRadarDials();
+    // A second pass, and both are needed. The one at the top ran before
+    // `geometry()` had been read, so it had only the stored width to go on; by
+    // here `radarGeo` is the map on screen and the drawer has been drawn, so the
+    // width can follow the map's shape and the chrome the height is added to is
+    // measurable. Idempotent when neither has moved, which is every render but a
+    // map change and a drawer toggle.
+    applyRadarScale(rect.stageHeight, rect, false);
+    placeRadarCanvas();
+    paintRadar();
+  }
+
+  /**
+   * The order the layers are composited back in.
+   *
+   * Read off `TUNE_TYPES` rather than written out here, and that is the whole
+   * point of taking it from there: the render's painter order, the dials the
+   * options page shows and this composite are then one list, and
+   * scripts/check-tune.mjs already pins that list against SPRITE_FIX. A second
+   * copy kept by hand is the failure that once killed every build hotkey.
+   */
+  const radarLayerOrder = () =>
+    window.__cdcTune ? window.__cdcTune.TUNE_TYPES.map((t) => t.key) : [];
+
+  /**
+   * The layered terrain render for the map on screen, taken once.
+   *
+   * Rendered **untuned** (`look: false`). The dials are applied per layer at
+   * composite time instead, which is what lets a slider move over a live radar
+   * without re-rendering anything -- and baking them here as well would apply
+   * each one twice.
+   *
+   * Markless too: no ore tint, no ownership outlines, no badges, no grid and no
+   * spawn blocks, the last of which the user ruled out by name. What the radar
+   * draws over this is live, and a mark baked into the terrain could not be.
+   */
+  async function ensureRadarSource() {
+    const mapFile = radarMapFile();
+    const hq = window.__cdcHq;
+    if (!mapFile || !hq || typeof hq.render !== "function") return null;
+    if (radarSource && radarSource.mapFile === mapFile) return radarSource;
+    if (radarRendering) return null;
+
+    radarRendering = true;
+    radarFailed = null;
+    renderRadar(); // so the panel says what it is doing rather than sitting black
+    try {
+      const result = await hq.render({
+        mapFile,
+        layers: true,
+        layerWidth: RADAR_SOURCE_WIDTH,
+        look: false,
+        grid: false,
+        annotate: false,
+        outlines: false,
+        starts: false,
+        open: false,
+      });
+      radarSource = { mapFile, layers: result.layers || {}, size: result.layerSize };
+      radarBacking = null;
+    } catch (e) {
+      // Named, not swallowed: a radar that is simply black cannot be told from
+      // one that is broken, and this panel is the only place it would surface.
+      note(`radar terrain render failed — ${e && e.message}`, "warn");
+      // Pinned to the map it happened on, so a broken map does not poison the
+      // next one -- and so the panel does not sit retrying a render that throws.
+      radarFailed = { mapFile, message: (e && e.message) || "the render threw" };
+    } finally {
+      radarRendering = false;
+      renderRadar();
+    }
+    return radarSource;
+  }
+
+  /**
+   * The layers composited into one canvas at the size the panel is showing.
+   *
+   * This exists so that the per-frame work in the slices that follow -- unit
+   * blips, the viewport rectangle -- is one drawImage plus a few small fills.
+   * Re-compositing eight layers every frame is the trap the alignment stage
+   * already walked into once, where scaling a large stack per frame re-decoded
+   * the whole of it every time.
+   *
+   * The dials go on here, per layer, as `ctx.filter`. That they can is measured
+   * rather than hoped: scripts/probe-filter-parity.mjs put both mechanisms on a
+   * real canvas and the worst opaque disagreement was 2 of 255, which is
+   * Chrome's own rounding.
+   *
+   * Types are composited whole, in painter order, rather than interleaved by
+   * depth the way the flat render draws them -- so a tree that should stand in
+   * front of a building stands behind it. That is the price of keeping the
+   * types apart; it shows only where two *different* types overlap, and at
+   * radar scale those objects are a pixel or two wide.
+   */
+  function buildRadarBacking(width, height) {
+    const tune = window.__cdcTune;
+    if (!radarSource || width < 1 || height < 1) return null;
+
+    const order = radarLayerOrder();
+    const filters = order.map((key) => (tune ? tune.filterString(state.appearance, key) : "none"));
+    // The stamp is exactly what the picture is a function of: the size it was
+    // drawn at, and the filter actually applied to each layer. Built from the
+    // filter strings rather than from `tuneKey` because those answer different
+    // questions -- this one is "would re-compositing change these pixels", and
+    // `tuneKey` is "would re-rendering change the map", which counts dials this
+    // composite never reads.
+    const stamp = `${width}x${height}|${filters.join(",")}`;
+    if (radarBacking && radarBacking.stamp === stamp && radarBacking.source === radarSource) {
+      return radarBacking;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    if (!ctx) return null;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    // Unexplored is a radar's ground state, so the canvas starts as the colour
+    // the shroud layer will leave wherever it does not clear.
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, width, height);
+
+    let drawn = 0;
+    order.forEach((key, i) => {
+      const layer = radarSource.layers[key];
+      if (!layer) return; // a map with no bridges has no bridge layer
+      ctx.filter = filters[i];
+      ctx.drawImage(layer, 0, 0, width, height);
+      drawn++;
+    });
+    ctx.filter = "none";
+
+    radarBacking = { canvas, stamp, source: radarSource, drawn };
+    return radarBacking;
+  }
+
+  /**
+   * The terrain, at the size the panel is currently showing it.
+   *
+   * The global brightness/contrast pair goes on **here**, at the blit, and not
+   * into the backing canvas -- which keeps the one rule the appearance table
+   * has: the global pair is a filter over a finished picture and is never baked
+   * into one. It also leaves the layers that come next, units and the viewport
+   * rectangle, free to be drawn afterwards with the filter off, so an
+   * annotation does not dim with the map it annotates. The badge layers over
+   * the stored previews already work that way.
+   */
+  function paintRadar() {
+    if (!radarEl || !radarGeo || !radarPlaced) return;
+    const canvas = radarEl.querySelector(".cdc-radar-canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const tune = window.__cdcTune;
+    // Normalised here rather than inside each layer: the blips and the cover
+    // both read it, and normalising twice per paint would fill in the same
+    // defaults twice for a table that has not moved.
+    const look = tune ? tune.normalise(state.appearance) : null;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.filter = "none";
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const backing = buildRadarBacking(canvas.width, canvas.height);
+    if (!backing) return;
+    ctx.filter = tune ? tune.globalFilter(state.appearance) : "none";
+    ctx.drawImage(backing.canvas, 0, 0);
+    ctx.filter = "none";
+
+    // The ore before the blips: a mark on the ground, and a blip stands on the
+    // ground. Under the units and the pictograms so neither is tinted by it, and
+    // over the backing with the filter off, because it is an annotation over the
+    // picture rather than part of it.
+    const ore = buildRadarOre(canvas.width, canvas.height, look);
+    if (ore) ctx.drawImage(ore, 0, 0);
+
+    // The gap field dims the ground, and it goes on HERE -- over the terrain and
+    // the ore, under the blips and the pictograms. That order is the feature:
+    // our own generator has to read as a region without hiding what is ours
+    // inside it, and the client does exactly this (it dims a tile under Darken
+    // unless a techno stands on it). Over the cover it would dim unexplored
+    // black to no purpose; under the blips it leaves them at full strength.
+    const gap = buildRadarGap(canvas.width, canvas.height, look);
+    if (gap) ctx.drawImage(gap, 0, 0);
+
+    // Units go on before the cover and with the filter off, in that order for
+    // two different reasons. Off, because a blip is an annotation and the
+    // global pair is a filter over the picture it annotates — dimming both
+    // equally would leave the blip exactly as hard to see. Before, because a
+    // dot is drawn wider than the cell it sits on, and the cover is what clips
+    // the overhang back to ground the player has actually scouted.
+    drawRadarUnits(ctx, canvas, look, tune);
+    // The pictograms go on with the blips rather than with the annotations: each
+    // one is a statement about a building standing on a cell, so it is gated by
+    // the mask and clipped by the cover exactly as a blip is.
+    drawRadarIcons(ctx, canvas, window.__cdcGlyphs);
+
+    // The shroud goes on after the blit and with the filter off. It is not
+    // part of the map — it is what hides the map — so dimming it with the
+    // global pair would fade the cover exactly as far as the picture beneath
+    // it, and hide nothing at all.
+    const cover = buildRadarCover(canvas.width, canvas.height);
+    if (cover) ctx.drawImage(cover, 0, 0);
+
+    // Last, and over the cover rather than under it — the opposite of every
+    // layer above. Those are statements about cells and the cover is what clips
+    // them back to ground the player has scouted; this one says where the
+    // player's own camera is, which hides nothing and is worth seeing over
+    // unexplored ground exactly as much as over explored.
+    drawRadarViewport(ctx, canvas);
+  }
+
+  // --- the shroud -----------------------------------------------------------
+  //
+  // Two states, not three. Red Alert 2 has no explored-but-out-of-sight band:
+  // a tile is unexplored or it is revealed, and revealed **stays** revealed --
+  // `ShroudType` is {Unexplored:0, TemporaryReveal:1, Explored:2} and
+  // `isShrouded(t)` is literally `getShroudType(t) === 0`.
+  //
+  // **Both masks mirror the live shroud; neither accumulates.** `seen` used to
+  // be append-only, on the belief that the client's shroud answers "lit now"
+  // and that this mask was what turned it into "has ever been seen". That
+  // belief was wrong, and it was the bug. Sight writes `Explored` permanently,
+  // so the client already answers "has ever been seen" -- the mask spent its
+  // existence turning a persistent answer into the same persistent answer,
+  // while the one thing it could not represent was the thing that mattered.
+  //
+  // Three paths revoke a reveal: `unrevealAround` outright, a temporary reveal
+  // running out, and an enemy Gap Generator, which calls `unrevealAround` on
+  // every non-allied shroud on a ~5 s refresh. An append-only mask shows none
+  // of them -- a Spy Satellite dying left the map lit for ever.
+  //
+  // Mirroring reproduces all three and costs no special case, because the
+  // temporary-reveal path is self-limiting: it only ever reverts tiles it had
+  // itself promoted *from* `Unexplored`, so ground genuinely scouted survives
+  // losing the satellite, exactly as RA2 does. All three read out of
+  // `game/map/MapShroud` and `game/gameobject/trait/GapGeneratorTrait` at
+  // v0.83.3.
+  //
+  // `gapped` is rebuilt every sweep and always was. What it means is settled
+  // separately -- see `radarCellVisible`.
+
+  /** The local player's shroud, or null outside a match. */
+  function radarLiveShroud() {
+    const ui = state.combatant;
+    const game = ui && ui.game;
+    const me = ui && ui.player;
+    if (!game || !me || !game.mapShroudTrait) return null;
+    try {
+      return game.mapShroudTrait.getPlayerShroud(me) || null;
+    } catch (e) {
+      // Named, not swallowed: the trait moving is a client change, and a radar
+      // that silently stopped hiding anything would be the worst way to find
+      // that out.
+      note(`could not read the player's shroud — ${e && e.message}`, "warn");
+      return null;
+    }
+  }
+
+  /**
+   * Every cell of the live map, walked once and kept.
+   *
+   * **Two ways, and the panel says which one worked**, because this is exactly
+   * where the probe died: `src/radar-probe.js` asked `game.map.getSize()`, got
+   * null, and its tile generator returned immediately — so its whole shroud
+   * section sampled nothing and still reported a verdict. `tiles.getAll()` is
+   * what the renderer itself uses; `mapFile.fullSize` is the size it sizes its
+   * canvas from, so both are known good from a picture that draws correctly.
+   *
+   * Cached per map: cells do not come and go during a match, and the fallback
+   * walk is ten thousand calls that must not happen three times a second.
+   */
+  function radarCellList(mapFile) {
+    if (radarTiles && radarTiles.mapFile === mapFile) return radarTiles.list;
+    const ui = state.combatant;
+    const tiles = ui && ui.game && ui.game.map && ui.game.map.tiles;
+    if (!tiles) return null;
+
+    let list = null;
+    let how = "";
+    if (typeof tiles.getAll === "function") {
+      const all = tiles.getAll();
+      if (all && all.length) {
+        list = all;
+        how = `tiles.getAll, ${all.length} cells`;
+      }
+    }
+    if (!list && mapFile.fullSize && typeof tiles.getByMapCoords === "function") {
+      const size = mapFile.fullSize;
+      list = [];
+      for (let ry = 0; ry < size.height; ry++) {
+        for (let rx = 0; rx < size.width; rx++) {
+          const tile = tiles.getByMapCoords(rx, ry);
+          if (tile) list.push(tile);
+        }
+      }
+      how = `getByMapCoords walk, ${list.length} cells`;
+    }
+    if (!list || !list.length) {
+      note("the radar could not walk the map's cells — the shroud cannot be read", "warn");
+      return null;
+    }
+    if (how !== radarTileSource) {
+      radarTileSource = how;
+      note(`radar shroud walks the map by ${how}`);
+    }
+    radarTiles = { mapFile, list };
+    return list;
+  }
+
+  /**
+   * One pass over the map: what has been revealed, and what a gap field covers.
+   *
+   * Returns whether anything moved, so a sweep that finds nothing costs one
+   * loop and no repaint at all — which is what most sweeps are once a match
+   * settles.
+   */
+  function sweepRadarShroud() {
+    const shroud = radarLiveShroud();
+    const mapFile = radarMapFile();
+    if (!shroud || !mapFile || !radarGeo) return false;
+    const list = radarCellList(mapFile);
+    if (!list) return false;
+
+    // `cellIds`, not `mapWidth * mapHeight`. The map's cells are a diamond and
+    // not a rectangle, so `rx` and `ry` both run past the map's width and
+    // height — see the note beside `cellId` in hq-preview.js. Sizing this array
+    // by the rectangle is what put 8316 of this map's 19690 cells outside it,
+    // where a write is dropped in silence and the read back is `undefined`,
+    // which the cover paints black.
+    const stride = radarGeo.idStride;
+    if (!radarShroud || radarShroud.mapFile !== mapFile) {
+      const cells = radarGeo.cellIds;
+      radarShroud = {
+        mapFile,
+        stride,
+        seen: new Uint8Array(cells),
+        gapped: new Uint8Array(cells),
+        revision: 0,
+        // Counted as the bits are set rather than summed per sweep: the loop is
+        // already here, and a second pass over ten thousand cells three times a
+        // second to produce one log line would be the expensive half.
+        revealed: 0,
+        darkened: 0,
+      };
+      radarShroudNoted = -1;
+      radarLastGapped = false;
+      radarShroudOutside = false;
+    }
+    const seen = radarShroud.seen;
+    const gapped = radarShroud.gapped;
+    const canFlag = typeof shroud.isFlagged === "function";
+    let changed = false;
+
+    let outside = 0;
+    let worst = null;
+    for (const tile of list) {
+      const i = radarGeo.cellId(tile.rx, tile.ry);
+      // Named rather than dropped. The whole defect was a silent out-of-range
+      // write: the mask kept marking cells it could not store, so `revealed`
+      // climbed past the map's own cell count — 204870 of 19690 — while the
+      // panel stayed black. A bound that is wrong again says so now.
+      if (i < 0 || i >= seen.length) {
+        outside++;
+        if (!worst) worst = `${tile.rx},${tile.ry}`;
+        continue;
+      }
+      // Mirrored, not accumulated -- the same shape as `gapped` below, and for
+      // the same reason: this is a statement about the shroud as it stands
+      // rather than a history of it. A bit that clears here is a reveal being
+      // taken away, which is the whole of the round-2 defect.
+      const lit = shroud.isShrouded(tile) ? 0 : 1;
+      if (seen[i] !== lit) {
+        radarShroud.revealed += lit ? 1 : -1;
+        seen[i] = lit;
+        changed = true;
+      }
+      // Rebuilt rather than accumulated, because a gap field is not history:
+      // it switches off when its generator dies, and the ground under it goes
+      // back to being ground already scouted.
+      const dark = canFlag && shroud.isFlagged(tile, SHROUD_DARKEN) ? 1 : 0;
+      if (gapped[i] !== dark) {
+        radarShroud.darkened += dark ? 1 : -1;
+        gapped[i] = dark;
+        changed = true;
+      }
+    }
+    if (outside && !radarShroudOutside) {
+      radarShroudOutside = true;
+      note(
+        `radar shroud: ${outside} of ${list.length} cells fall outside the ${seen.length}-cell mask ` +
+          `(first ${worst}) — the id packing is too narrow for this map`,
+        "warn"
+      );
+    }
+    if (changed) {
+      radarShroud.revision++;
+      noteRadarShroudProgress(list.length);
+    }
+    return changed;
+  }
+
+  /**
+   * How much of the map the mask thinks is revealed, in twentieths.
+   *
+   * Not every change: scouting moves the mask several times a second and a line
+   * per move would flush the event list in half a minute. A step of 5% is at
+   * most twenty lines for a whole match, and that is enough to answer the only
+   * question this is for — whether a black panel is a mask that never filled or
+   * a picture that never showed a mask that did.
+   *
+   * A gap field is reported on its own, on the edge rather than by size: a
+   * field switching on is a visible change in what the panel hides, and it is
+   * the one shroud state a player can be surprised by.
+   */
+  function noteRadarShroudProgress(cells) {
+    const step = cells ? Math.floor((radarShroud.revealed * 20) / cells) : 0;
+    const gapped = radarShroud.darkened > 0;
+    if (step === radarShroudNoted && gapped === radarLastGapped) return;
+    radarShroudNoted = step;
+    radarLastGapped = gapped;
+    note(
+      `radar shroud: ${radarShroud.revealed} of ${cells} cells revealed, ` +
+        `${radarShroud.darkened} under a gap field`
+    );
+  }
+
+  /**
+   * The black that hides what has not been scouted, as one canvas to blit.
+   *
+   * **Drawn through the pick buffer, not rasterised again.** The mask is per
+   * cell and the picture is per pixel; the pick buffer is exactly the map from
+   * one to the other, and it is already built and already invalidated on
+   * resize. So this is one pass over an array with no geometry in it at all,
+   * and the shroud's edge follows the same cell boundaries a click does — it
+   * cannot disagree with the picture, because it is derived from it.
+   *
+   * Rebuilt only when the mask moved or the dial did: `revision` counts the
+   * former and most sweeps do not bump it.
+   */
+  function buildRadarCover(width, height) {
+    if (!radarShroud) return null;
+    const tune = window.__cdcTune;
+    const look = tune ? tune.normalise(state.appearance) : null;
+    const pick = ensureRadarPick();
+    if (!pick || pick.width !== width || pick.height !== height) return null;
+    const dim = look ? look.shroudDim : 0;
+
+    const stamp = `${width}x${height}|${radarShroud.revision}|${dim}`;
+    if (radarCover && radarCover.stamp === stamp) return radarCover.canvas;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const image = ctx.createImageData(width, height);
+    const px = image.data;
+    const seen = radarShroud.seen;
+
+    for (let i = 0; i < pick.ids.length; i++) {
+      const id = pick.ids[i];
+      // Off the map -- the headroom band above the top row -- is covered for the
+      // same reason unexplored is: there is nothing there to have scouted.
+      // A gap field is NOT one of these cases any more; it has its own layer.
+      const alpha = id < 0 || !seen[id] ? 255 : 0;
+      // Only alpha is written; the three colour bytes stay 0, which is black.
+      px[i * 4 + 3] = alpha;
+    }
+    ctx.putImageData(image, 0, 0);
+    radarCover = { canvas, stamp };
+    return canvas;
+  }
+
+  /**
+   * The dimming a gap field puts on the ground it covers.
+   *
+   * **A layer of its own, drawn under the blips**, which is the whole point:
+   * this is the client's own rule. Its radar dims a tile under `ShroudFlag.
+   * Darken` to 35% *unless a techno stands on it*, in which case it draws the
+   * techno at full colour. Ours reaches the same result more cheaply -- dim the
+   * ground, then draw the blips over it -- and without rebuilding a per-pixel
+   * buffer every time a unit moves, which is what a techno-aware cover would
+   * cost at three sweeps a second.
+   *
+   * Only ground already scouted is dimmed. Unexplored ground is opaque black
+   * from the cover regardless, and dimming it would be arithmetic nobody sees.
+   *
+   * `shroudDim` is how much of the picture the field lets through: the default
+   * is the client's own 0.35, 1 hides the field entirely, and 0 puts back the
+   * pre-1.16.2 behaviour of a field indistinguishable from never-scouted.
+   */
+  function buildRadarGap(width, height, look) {
+    if (!radarShroud || !radarShroud.darkened) return null;
+    const pick = ensureRadarPick();
+    if (!pick || pick.width !== width || pick.height !== height) return null;
+    const dim = look ? look.shroudDim : 0;
+    const alpha = Math.round(255 * (1 - dim));
+    if (!alpha) return null;
+
+    const stamp = `${width}x${height}|${radarShroud.revision}|${dim}`;
+    if (radarGap && radarGap.stamp === stamp) return radarGap.canvas;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const image = ctx.createImageData(width, height);
+    const px = image.data;
+    const seen = radarShroud.seen;
+    const gapped = radarShroud.gapped;
+
+    for (let i = 0; i < pick.ids.length; i++) {
+      const id = pick.ids[i];
+      if (id < 0 || !seen[id] || !gapped[id]) continue;
+      px[i * 4 + 3] = alpha;
+    }
+    ctx.putImageData(image, 0, 0);
+    radarGap = { canvas, stamp };
+    return canvas;
+  }
+
+  // --- the ore ----------------------------------------------------------------
+  //
+  // The ore and gem patches, marked on the radar the way they are marked on the
+  // previews -- and the one layer here whose colour is a live setting rather
+  // than a baked one.
+  //
+  // **Read from the match, not from the map file.** This used to walk
+  // `mapFile.overlays`, which is the ore the map *starts* with: a field mined
+  // flat by hour two stayed on the radar for the rest of the game, and ore that
+  // regrew from a drill never appeared at all. The live source is the client's
+  // own, out of `MinimapModel` at v0.83.3 -- `tileOccupation.getObjectsOnTile`,
+  // then an object that is an overlay and answers `isTiberium()`. Ore and gems
+  // are told apart by `overlayId`, which is the SAME id space the map file uses
+  // (`Overlay#isTiberium` is itself a lookup on it), so `__cdcHq.oreKindFor`
+  // classifies a running match with the ranges that already classify a stored
+  // map. One table, no drift.
+  //
+  // **Why the marks are not simply in the picture.** They are, on a stored
+  // preview: `drawOreFields` fills each patch into the render's `marks` surface
+  // at the colour in force when it ran. That is right for a picture written to
+  // disk and wrong for this one -- the radar takes **one** layered render per
+  // map and keeps it for the whole match, so a tint baked into it would be a
+  // colour that could not change without a re-render measured in seconds, in
+  // the middle of a game. The radar's own source is rendered `annotate: false`
+  // for exactly that reason.
+  //
+  // **Walked on its own clock.** Ore moves, but it moves at the speed a
+  // harvester works, so re-reading every cell three times a second would be
+  // `getObjectsOnTile` twenty thousand times a second to watch paint dry. The
+  // ore rides the sweep at a divisor of its own, and the picture is rebuilt only
+  // when a cell actually changed -- `revision`, the same mechanism the cover
+  // uses, for the same reason.
+  //
+  // **Not gated by the shroud mask, and that is not an oversight.** The layer
+  // goes on before the cover, which paints opaque black over every cell the
+  // player has not scouted -- so the mask clips it exactly as it clips a blip,
+  // one blit later and without this loop having to ask.
+  //
+  // **Filter off, like every other mark.** The backing is blitted under the
+  // global brightness/contrast pair because it is the picture; a mark over it is
+  // an annotation, and one dimmed exactly as far as the map beneath it is
+  // exactly as hard to read. `oreAlpha` is the dial for how strongly it reads.
+
+  let radarOre = null; // { canvas, stamp, mapFile }
+  let radarOreMask = null; // { mapFile, cells, revision, ore: [], gems: [] }
+
+  const ORE_NONE = 0;
+  const ORE_ORE = 1;
+  const ORE_GEMS = 2;
+
+  /**
+   * Which kind of ore stands on a cell right now, as one of the codes above.
+   *
+   * Gems win a cell they share with ore, which is the order the render draws
+   * them in and for the same reason: a gem patch embedded in an ore field has to
+   * keep its own colour.
+   */
+  function radarOreOn(tile, occupation, hq) {
+    const on = occupation.getObjectsOnTile(tile);
+    if (!on) return ORE_NONE;
+    let found = ORE_NONE;
+    for (const obj of on) {
+      if (!obj || typeof obj.isOverlay !== "function" || !obj.isOverlay()) continue;
+      if (typeof obj.isTiberium !== "function" || !obj.isTiberium()) continue;
+      const kind = hq.oreKindFor(obj.overlayId);
+      if (kind === "gems") return ORE_GEMS;
+      if (kind === "ore") found = ORE_ORE;
+    }
+    return found;
+  }
+
+  /**
+   * One pass over the map's cells for the ore standing on them.
+   *
+   * Returns whether anything moved, so a walk that finds the ore where it left
+   * it costs one loop and no repaint -- which is most walks, since a harvester
+   * empties a cell every few seconds and the map has twenty thousand of them.
+   *
+   * The cell lists are rebuilt only when something changed: the builder needs
+   * coordinates and the mask is indexed by packed id, which cannot be inverted.
+   */
+  function sweepRadarOre() {
+    const mapFile = radarMapFile();
+    const ui = state.combatant;
+    const game = ui && ui.game;
+    const occupation = game && game.map ? game.map.tileOccupation : null;
+    const hq = window.__cdcHq;
+    if (!mapFile || !radarGeo || !occupation) return false;
+    if (!hq || typeof hq.oreKindFor !== "function") return false;
+    const list = radarCellList(mapFile);
+    if (!list) return false;
+
+    if (!radarOreMask || radarOreMask.mapFile !== mapFile) {
+      radarOreMask = {
+        mapFile,
+        cells: new Uint8Array(radarGeo.cellIds),
+        revision: 0,
+        ore: [],
+        gems: [],
+      };
+    }
+    const cells = radarOreMask.cells;
+    const ore = [];
+    const gems = [];
+    let changed = false;
+
+    for (const tile of list) {
+      const i = radarGeo.cellId(tile.rx, tile.ry);
+      // Out of range is the shroud sweep's story to tell -- it names the same
+      // cells, in a warning this loop would only duplicate.
+      if (i < 0 || i >= cells.length) continue;
+      const kind = radarOreOn(tile, occupation, hq);
+      if (cells[i] !== kind) {
+        cells[i] = kind;
+        changed = true;
+      }
+      if (kind === ORE_ORE) ore.push(tile);
+      else if (kind === ORE_GEMS) gems.push(tile);
+    }
+
+    if (changed) {
+      radarOreMask.ore = ore;
+      radarOreMask.gems = gems;
+      radarOreMask.revision++;
+    }
+    return changed;
+  }
+
+  function buildRadarOre(width, height, look) {
+    if (!radarOreMask || !radarGeo || !look) return null;
+    // The revision is in the stamp, which is what makes this live: without it
+    // the first picture of a map would be kept for the whole match, which is
+    // the defect this section exists to fix.
+    const stamp = `${width}x${height}|${look.ore}|${look.gems}|${look.oreAlpha}|${radarOreMask.revision}`;
+    if (radarOre && radarOre.stamp === stamp && radarOre.mapFile === radarOreMask.mapFile) {
+      return radarOre.canvas;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    const geo = radarGeo;
+    const sx = width / geo.cropWidth;
+    const sy = height / geo.cropHeight;
+    const cellW = geo.block.width * sx;
+    const cellH = geo.block.height * sy;
+    ctx.globalAlpha = look.oreAlpha;
+    // Gems after ore, for the reason the render draws them in that order: a gem
+    // patch embedded in an ore field has to keep its own colour.
+    for (const kind of ["ore", "gems"]) {
+      const list = radarOreMask[kind];
+      if (!list || !list.length) continue;
+      ctx.fillStyle = look[kind];
+      ctx.beginPath();
+      for (const cell of list) {
+        const at = geo.cellAt(cell.rx, cell.ry, cell.z);
+        const left = (at.x - geo.view.x) * sx;
+        const top = (at.y - geo.view.y) * sy;
+        // The cell's own diamond, and one path for the whole field: filling cell
+        // by cell leaves a lattice of seams down every shared edge, which on a
+        // patch this size is most of what you would see.
+        ctx.moveTo(left + cellW / 2, top);
+        ctx.lineTo(left + cellW, top + cellH / 2);
+        ctx.lineTo(left + cellW / 2, top + cellH);
+        ctx.lineTo(left, top + cellH / 2);
+        ctx.closePath();
+      }
+      ctx.fill();
+    }
+    radarOre = { canvas, stamp, mapFile: radarOreMask.mapFile };
+    return canvas;
+  }
+
+  // --- the units ------------------------------------------------------------
+  //
+  // Drawn from the world's own object list and gated by the same mask the cover
+  // paints. Two rules govern every line below, and both are the client's rather
+  // than ours -- read out of `engine/renderable/entity/map/MinimapModel` in
+  // v0.83.3, which is the whole of the native radar's unit layer:
+  //
+  //   - **a cell the mask has not revealed is never drawn on.** Not the object,
+  //     the *cell*: a building whose footprint straddles the shroud edge shows
+  //     only the half that has been scouted, which is what the native radar
+  //     does. `radarCellVisible` is that gate, and it is the one thing here
+  //     that keeps this a radar rather than a maphack -- so it reads our own
+  //     mask, not `isShrouded`, and a panel with no mask yet draws nothing at
+  //     all rather than everything.
+  //   - **a colour is read, never constructed.** `owner.color` is a live object
+  //     the recolour feature writes into, and with sprite batching on a voxel
+  //     builder resolves palettes by content hash against `rules.colors` -- an
+  //     invented colour is not a wrong shade, it is a throw inside the client's
+  //     render loop. See applyRecolour.
+  //
+  // Cloak and disguise are where "what we can see" and "what the player may
+  // see" part company, and each is two property reads: the client skips a
+  // cloaked techno unless the viewer has shared intel with its owner, and
+  // paints a disguised one in the *disguise's* colour. Omitting either would
+  // turn the radar into a maphack in the two places it matters most.
+
+  /**
+   * The client's own radar colours for the things that are not drawn in their
+   * owner's colour, from MinimapModel v0.83.3.
+   *
+   * A wall takes a fixed colour rather than its builder's, which is why a wall
+   * line on the native radar reads as terrain and not as an army. The four
+   * named ones are the client's exceptions to that; everything else with
+   * `rules.wall` takes the default.
+   */
+  const RADAR_WALL_COLOURS = {
+    CAKRMW: "#6b4531",
+    CAFNCW: "#ffffff",
+    CAFNCB: "#000000",
+    GASAND: "#524d39",
+  };
+  const RADAR_WALL_DEFAULT = "#5a5952";
+  // What the client paints a techno it will not identify: a disguise with no
+  // owner behind it, which is the terrain disguise a mirage tank wears.
+  const RADAR_TERRAIN_COLOUR = "#adaa84";
+
+  // Colour objects are shared -- `rules.colors` hands back the same instance to
+  // every player who picked that colour -- so this is at most one entry per
+  // player per match, and it exists to keep a per-tick loop from building a few
+  // hundred identical strings a second.
+  const radarColours = new Map();
+
+  let radarUnitsNoted = ""; // the last shape of the unit count that was said
+
+  /** `#rrggbb` for a client Color, or null. Read, never built. */
+  function radarOwnerColour(colour) {
+    if (!colour) return null;
+    const known = radarColours.get(colour);
+    if (known) return known;
+    if (typeof colour.asHexString !== "function") return null;
+    const hex = colour.asHexString();
+    radarColours.set(colour, hex);
+    return hex;
+  }
+
+  /**
+   * Whether two players share intel, and **false when the question cannot be
+   * asked**.
+   *
+   * The direction matters. This answer only ever un-hides something -- a
+   * cloaked unit, a disguise's real owner -- so the safe default when the
+   * client's alliance table has moved is the one that keeps hiding it. An
+   * ally's submarine going missing from our own radar is a cosmetic bug; the
+   * other way round is a cheat.
+   */
+  function radarSharedIntel(alliances, me, them) {
+    if (!alliances || !me || !them) return false;
+    if (typeof alliances.haveSharedIntel !== "function") return false;
+    return !!alliances.haveSharedIntel(me, them);
+  }
+
+  /**
+   * What colour a techno reads as on the radar, or null for one the radar must
+   * not draw at all.
+   *
+   * The client's own decision tree, in its own order, because the order is
+   * load-bearing: a wall is a wall before it is anyone's building, and a cloak
+   * hides an object before its disguise gets to lie about it.
+   */
+  function radarBlipColour(obj, me, alliances) {
+    const rules = obj.rules || {};
+    // The client's admission test, restricted to technos (it also admits
+    // overlays, terrain and bridges, which our terrain render already draws).
+    // A radar-invisible building is still shown when it can be garrisoned and
+    // a combatant holds it -- that is how an occupied civilian building reads
+    // as a threat on the native radar.
+    const shown =
+      !obj.radarInvisible ||
+      (obj.isBuilding() &&
+        !rules.invisibleInGame &&
+        !!rules.canBeOccupied &&
+        !!obj.owner &&
+        typeof obj.owner.isCombatant === "function" &&
+        obj.owner.isCombatant());
+    if (!shown) return null;
+    if (rules.wall) return RADAR_WALL_COLOURS[obj.name] || RADAR_WALL_DEFAULT;
+
+    const cloak = obj.cloakableTrait;
+    if (
+      cloak &&
+      typeof cloak.isCloaked === "function" &&
+      cloak.isCloaked() &&
+      me &&
+      !radarSharedIntel(alliances, me, obj.owner)
+    ) {
+      return null;
+    }
+
+    const wears = obj.disguiseTrait;
+    const disguise =
+      (obj.isInfantry() || obj.isVehicle()) && wears && typeof wears.getDisguise === "function"
+        ? wears.getDisguise()
+        : null;
+    if (
+      me &&
+      disguise &&
+      !radarSharedIntel(alliances, me, obj.owner) &&
+      !(me.sharedDetectDisguiseTrait && me.sharedDetectDisguiseTrait.has(obj))
+    ) {
+      return disguise.owner ? radarOwnerColour(disguise.owner.color) : RADAR_TERRAIN_COLOUR;
+    }
+    return obj.owner ? radarOwnerColour(obj.owner.color) : null;
+  }
+
+  /**
+   * Whether the player has scouted this cell, by our mask rather than the
+   * client's shroud.
+   *
+   * **A gap field is not asked about here, and that is the round-2 fix.** This
+   * used to be `seen && !gapped`, which blinded the player with their OWN
+   * generator: `ShroudFlag.Darken` on a player's shroud can only ever be their
+   * own field or an ally's. Both writers are gated on ownership --
+   * `MapShroudTrait#markOwnGapTiles` and
+   * `GapGeneratorTrait#markGapTilesForFriendlies` -- and an ENEMY generator
+   * sets no flag on us at all: it calls `unrevealAround` on every non-allied
+   * shroud, so an enemy field arrives as ordinary unexplored ground and is
+   * already handled by `seen` alone.
+   *
+   * So the earlier instruction that a live field counts as unexplored is still
+   * honoured, by the only mechanism that ever implemented it. What changes is
+   * that our own field no longer hides what is ours to see -- the user's words,
+   * and the client's own behaviour: its radar draws a techno under `Darken` at
+   * full colour and dims only the ground.
+   *
+   * The field is still *visible*: `buildRadarGap` dims the ground under it,
+   * under the blips rather than over them, so the zone reads as a region while
+   * what stands in it stays legible.
+   *
+   * It also means turning the shroud layer off cannot leak a unit position: the
+   * dial stops the cover being painted, and this is not the cover.
+   */
+  function radarCellVisible(tile) {
+    const i = radarGeo.cellId(tile.rx, tile.ry);
+    const seen = radarShroud.seen;
+    if (i < 0 || i >= seen.length) return false;
+    return !!seen[i];
+  }
+
+  /**
+   * The cells an object stands on.
+   *
+   * A 1x1 foundation is the overwhelming majority of the objects on a map and
+   * its answer is its own tile, so the client's allocating call is kept for the
+   * few that need it rather than made a few hundred times a tick.
+   */
+  function radarObjectCells(obj, occupation) {
+    const foundation = typeof obj.getFoundation === "function" ? obj.getFoundation() : null;
+    if (!foundation || (foundation.width === 1 && foundation.height === 1)) return [obj.tile];
+    if (!occupation || typeof occupation.calculateTilesForGameObject !== "function") return [obj.tile];
+    return occupation.calculateTilesForGameObject(obj.tile, obj) || [obj.tile];
+  }
+
+  /**
+   * Every techno in the world, walked fresh.
+   *
+   * No subscription and no cache: `world.getAllObjects` is one array of the
+   * map's objects and the walk is a type test each, which at the panel's tick
+   * rate is nothing beside the shroud sweep it shares a timer with. The cost of
+   * the alternative is a spawn/remove subscription that has to be torn down
+   * with the match, and a stale entry in it draws a dead unit.
+   */
+  function radarTechnos() {
+    const ui = state.combatant;
+    const game = ui && ui.game;
+    const world = game && typeof game.getWorld === "function" ? game.getWorld() : null;
+    if (!world || typeof world.getAllObjects !== "function") return null;
+    const out = [];
+    for (const obj of world.getAllObjects()) {
+      if (typeof obj.isTechno !== "function" || !obj.isTechno()) continue;
+      if (obj.isDestroyed || !obj.isSpawned || !obj.tile) continue;
+      out.push(obj);
+    }
+    return out;
+  }
+
+  /**
+   * The blips, straight onto the radar canvas in canvas pixels.
+   *
+   * Buildings get their footprint and units a dot, which is the one place this
+   * departs from the native radar on purpose: our cell is an isometric diamond
+   * roughly four pixels by two at a usable panel size, and a single one of them
+   * is not a thing a player can see. The dot is sized from the cell so it
+   * follows a resize, with a floor so it survives the smallest panel.
+   *
+   * `look` is the appearance table and `tune` the arithmetic that reads it, both
+   * handed in rather than reached for: this section is sliced out of the file and
+   * executed against a stub game by scripts/check-radar.mjs, and a global it
+   * closed over would be a global that check would have to invent.
+   *
+   * The blips are the last layer in the table to get a dial, and they get their
+   * own pair because nothing else in it can reach them -- they are drawn with
+   * `ctx.filter` off, on purpose, since a blip dimmed exactly as far as the map
+   * under it is exactly as hard to see. So the brightness dial reaches the
+   * *colour*, through the same `channel` arithmetic the palette bake uses.
+   */
+  function drawRadarUnits(ctx, canvas, look, tune) {
+    // Fail closed. No geometry, no mask, or a mask for another map means there
+    // is nothing that can say which ground has been scouted -- and a blip drawn
+    // without that is a unit position the player has not earned.
+    if (!radarGeo || !radarShroud) return;
+    const mapFile = radarMapFile();
+    if (!mapFile || radarShroud.mapFile !== mapFile) return;
+    const list = radarTechnos();
+    if (!list || !list.length) return;
+
+    const ui = state.combatant;
+    const me = ui ? ui.player : null;
+    const game = ui ? ui.game : null;
+    const alliances = game ? game.alliances : null;
+    const occupation = game && game.map ? game.map.tileOccupation : null;
+
+    const geo = radarGeo;
+    const sx = canvas.width / geo.cropWidth;
+    const sy = canvas.height / geo.cropHeight;
+    const cellW = geo.block.width * sx;
+    const cellH = geo.block.height * sy;
+    // A dial, not a new default. The multiplier is 1 out of the box, so this is
+    // the expression it has always been until someone moves it.
+    //
+    // The floor is applied *after* the multiplier rather than before it: two
+    // pixels is there so a blip survives the smallest panel, and a size dial
+    // that could take a blip below it would be a switch that hides units, which
+    // is not what a legibility dial is for.
+    const units = look ? look.units : { size: 1, brightness: 1 };
+    const dot = Math.max(2, (cellW / 2.5) * units.size);
+    // Resolved once per paint rather than per blip, and the identity case is the
+    // identity *function* rather than a call that computes it: this runs a few
+    // hundred times a tick on a full map.
+    const tint =
+      tune && units.brightness !== 1
+        ? (hex) => tune.tuneHex(hex, units.brightness, 1)
+        : (hex) => hex;
+
+    let drawn = 0;
+    let hidden = 0;
+    let unidentified = 0;
+    let disguised = 0;
+
+    for (const obj of list) {
+      const colour = radarBlipColour(obj, me, alliances);
+      if (!colour) {
+        unidentified++;
+        continue;
+      }
+      // Counted off the trait rather than off the colour: a wall also comes
+      // back in a colour that is not its owner's, and calling that a disguise
+      // would make the one number that says the disguise read is wired to
+      // something say it about every fence on the map.
+      const wearing = obj.disguiseTrait;
+      if (wearing && typeof wearing.getDisguise === "function" && wearing.getDisguise()) disguised++;
+      const cells = radarObjectCells(obj, occupation);
+      const building = obj.isBuilding();
+      let painted = 0;
+      ctx.fillStyle = tint(colour);
+      if (building) ctx.beginPath();
+      for (const cell of cells) {
+        if (!cell || !radarCellVisible(cell)) continue;
+        painted++;
+        const at = geo.cellAt(cell.rx, cell.ry, cell.z);
+        const left = (at.x - geo.view.x) * sx;
+        const top = (at.y - geo.view.y) * sy;
+        if (building) {
+          // The cell's own diamond, so a footprint reads as the shape it has on
+          // the map. One path for the whole building: filling cell by cell
+          // leaves a lattice of seams along the shared edges.
+          ctx.moveTo(left + cellW / 2, top);
+          ctx.lineTo(left + cellW, top + cellH / 2);
+          ctx.lineTo(left + cellW / 2, top + cellH);
+          ctx.lineTo(left, top + cellH / 2);
+          ctx.closePath();
+        } else {
+          ctx.fillRect(left + cellW / 2 - dot / 2, top + cellH / 2 - dot / 2, dot, dot);
+        }
+      }
+      if (building && painted) ctx.fill();
+      if (painted) drawn++;
+      else hidden++;
+    }
+
+    noteRadarUnits(list.length, drawn, hidden, unidentified, disguised);
+  }
+
+  /**
+   * Say what the unit layer did, when what it did changes shape.
+   *
+   * Not a count per tick -- that would flush the event list in seconds -- and
+   * not a percentage step either, because the question this has to answer is
+   * not "how many" but "is this layer alive at all". So the line goes out when
+   * one of its four numbers crosses zero in either direction: the first blip
+   * ever drawn, a layer that has gone silent while the world is still full, and
+   * the first time a cloak or a disguise actually gates something. That last
+   * pair is the only evidence available that the two reads which keep this from
+   * being a maphack are wired to anything.
+   */
+  function noteRadarUnits(walked, drawn, hidden, unidentified, disguised) {
+    const shape = `${walked ? 1 : 0}${drawn ? 1 : 0}${hidden ? 1 : 0}${unidentified ? 1 : 0}${disguised ? 1 : 0}`;
+    if (shape === radarUnitsNoted) return;
+    radarUnitsNoted = shape;
+    note(
+      `radar units: ${drawn} of ${walked} technos drawn, ${hidden} on unscouted ground, ` +
+        `${unidentified} not drawn (cloaked, radar-invisible or ownerless), ${disguised} disguised`
+    );
+  }
+
+  // --- tech-building pictograms ---------------------------------------------
+  //
+  // Inside the unit layer's window on purpose. `// --- the units ---` to
+  // `// --- the tick ---` is what scripts/check-radar.mjs slices out and
+  // *executes*, and these three functions call `radarCellVisible`,
+  // `radarObjectCells` and `radarOwnerColour` -- a second window would either
+  // have to duplicate them or hand them in, and a slice that cannot call the
+  // gate is a slice that cannot prove it is gated. The two section headers stay
+  // exactly as they are: moving or renaming either silently empties every
+  // assertion below and the suite still prints green.
+  //
+  // The marks are the ones the stored map previews already carry -- src/glyphs.js
+  // is the one copy, and it is handed in rather than reached for so this window
+  // stays executable outside a browser. A player who learned "droplet = oil
+  // derrick" off a preview reads the radar without learning it twice.
+  //
+  // **No spawn marks.** The user ruled them out by name, and the terrain render
+  // under this is taken with `starts: false` for the same reason.
+
+  /**
+   * How big a pictogram is drawn, as a fraction of the panel's width.
+   *
+   * Not derived from the cell: a cell is about five pixels across at a usable
+   * panel size and a five-pixel glyph is a smudge. This is the *thumbnail's* own
+   * proportion -- `iconSize: 18` over a 400px picture -- carried across rather
+   * than invented, because the thumbnail is the other place these marks have to
+   * read at small size and someone already tuned it there by eye.
+   *
+   * The bounds are in device pixels and exist for the two ends of the resize: a
+   * 160px panel must still show a mark, and a panel dragged across the screen
+   * must not show six enormous ones.
+   */
+  const RADAR_ICON_FRACTION = 0.045;
+  const RADAR_ICON_MIN = 9;
+  const RADAR_ICON_MAX = 34;
+
+  let radarIconsNoted = -1; // the last count said, so a settled map says nothing
+
+  /**
+   * Which pictogram a live object is worth marking with, or "" for none.
+   *
+   * `rules.needsEngineer` is the gate, and it is the client's own tech marker
+   * rather than a name list of ours: `PowerTrait.isCapturablePower` is
+   * `0 < rules.power && owner.isNeutral && rules.needsEngineer`, `Game` hands
+   * `returnable && needsEngineer` buildings back to the civilian player when
+   * their owner is defeated, and `AttackTrait` uses it to stop units acquiring
+   * neutral tech. Read out of v0.83.3.
+   *
+   * **Not `rules.capturable`**, which the renderer's map-file gate uses. That one
+   * is read off a structure in a *map file*, where the alternative is scenery;
+   * on a live object it is also true of an ordinary war factory, because an
+   * engineer can take one. Gating on it would put a pictogram on every building
+   * on the map.
+   *
+   * The fallback is `marker`, exactly as `iconFor` in hq-preview.js: a tech
+   * structure this build has no drawing for is marked rather than dropped.
+   */
+  function radarTechGlyph(obj, glyphs) {
+    if (typeof obj.isBuilding !== "function" || !obj.isBuilding()) return "";
+    const rules = obj.rules || {};
+    if (!rules.needsEngineer) return "";
+    return glyphs.BUILDING_ICONS[obj.name] || "marker";
+  }
+
+  /**
+   * The pictograms, over the blips and under the cover.
+   *
+   * Under the cover for the blips' reason: a glyph is drawn far wider than the
+   * cell it marks, and the cover is what clips the overhang back to ground the
+   * player has scouted. That is the opposite of the viewport rectangle, which is
+   * an annotation over the whole finished picture rather than a statement about
+   * one cell.
+   *
+   * Its own walk of the world rather than a list threaded through from the blips:
+   * the walk is a type test over the few dozen objects a match holds, which at
+   * this tick rate is nothing beside the shroud sweep on the same timer, and two
+   * independent layers are worth more than one shared loop.
+   *
+   * Colour follows the render's own rule -- white while nobody owns it, the
+   * owner's colour once somebody does -- and falls back to white whenever that
+   * cannot be answered. White is the one colour that never means a player.
+   */
+  function drawRadarIcons(ctx, canvas, glyphs) {
+    // Fail closed, exactly as the blips do: no mask means no marks, because a
+    // pictogram is a statement about a building the player may not have found.
+    if (!glyphs || typeof glyphs.drawGlyph !== "function") return;
+    if (!radarGeo || !radarShroud) return;
+    const mapFile = radarMapFile();
+    if (!mapFile || radarShroud.mapFile !== mapFile) return;
+    const list = radarTechnos();
+    if (!list || !list.length) return;
+
+    const ui = state.combatant;
+    const game = ui ? ui.game : null;
+    const occupation = game && game.map ? game.map.tileOccupation : null;
+
+    const geo = radarGeo;
+    const sx = canvas.width / geo.cropWidth;
+    const sy = canvas.height / geo.cropHeight;
+    const size = Math.min(RADAR_ICON_MAX, Math.max(RADAR_ICON_MIN, canvas.width * RADAR_ICON_FRACTION));
+
+    let drawn = 0;
+    for (const obj of list) {
+      const glyph = radarTechGlyph(obj, glyphs);
+      if (!glyph) continue;
+      // The layer's own admission test, and deliberately not `radarBlipColour`:
+      // that one answers with a colour, and an uncaptured tech building is owned
+      // by the civilian player, whose colour is not ours to depend on. What is
+      // shared is the *gate* below, which is the part that keeps this honest.
+      if (obj.radarInvisible) continue;
+
+      // Centred on the cells that have been scouted rather than on the whole
+      // footprint: a building straddling the shroud edge is marked over the half
+      // the player has actually seen, which is where the blip is too.
+      let sumX = 0;
+      let sumY = 0;
+      let seen = 0;
+      for (const cell of radarObjectCells(obj, occupation)) {
+        if (!cell || !radarCellVisible(cell)) continue;
+        const at = geo.cellAt(cell.rx, cell.ry, cell.z);
+        sumX += (at.x + geo.block.width / 2 - geo.view.x) * sx;
+        sumY += (at.y + geo.block.height / 2 - geo.view.y) * sy;
+        seen++;
+      }
+      if (!seen) continue;
+
+      const owner = obj.owner;
+      const owned = owner && typeof owner.isCombatant === "function" && owner.isCombatant();
+      const colour = (owned && radarOwnerColour(owner.color)) || glyphs.ICON_NEUTRAL;
+      glyphs.drawGlyph(ctx, glyph, sumX / seen, sumY / seen, glyphs.glyphBox(glyph, size), colour);
+      drawn++;
+    }
+
+    noteRadarIcons(drawn);
+  }
+
+  /**
+   * Say how many tech buildings the radar is marking, when that number changes.
+   *
+   * A count rather than the blips' shape test, because this one is small and
+   * meaningful: it goes up when a building is scouted and down when one is
+   * destroyed, and both are events worth a line. A settled map says nothing.
+   */
+  function noteRadarIcons(drawn) {
+    if (drawn === radarIconsNoted) return;
+    radarIconsNoted = drawn;
+    note(`radar tech icons: ${drawn} marked`);
+  }
+
+  // --- the viewport rectangle -----------------------------------------------
+  //
+  // Where the camera is looking, drawn over the finished picture. The one layer
+  // here that is **not** gated by the shroud, and that is not an oversight: it
+  // says where the player's own camera is, which the player already knows. It
+  // is also why it goes on *after* the cover, the opposite way round from the
+  // blips and the pictograms -- those are statements about cells and the cover
+  // is what clips them back to scouted ground; this is an annotation over the
+  // whole map.
+  //
+  // **The camera's pan is a point in the client's screen space, and our render
+  // draws in the same one.** That is the finding this slice rests on, and it is
+  // what makes the rectangle a translation rather than an inverse-geometry
+  // problem. Read out of the bundle at v0.83.3:
+  //
+  //   MapPanningHelper#computeCameraPanFromScreen(p)
+  //     = { x: floor(p.x - o.x), y: floor(p.y - o.y) },  o = IsoCoords.worldToScreen(0,0)
+  //   IsoCoords.worldToScreen(x, y)  -- with Coords.ISO_TILE_SIZE = 30
+  //     puts tile (rx, ry) at { 30*(rx-ry), 15*(rx+ry) } once o is subtracted,
+  //   IsoCoords.tile3dToScreen(rx, ry, z)  subtracts a further 15*z.
+  //
+  // Our own `cellOrigin` is `dx = rx-ry + W-1`, `dy = rx+ry - W-1`, scaled by
+  // `BLOCK.width/2 = 30` and `BLOCK.height/2 = 15`, lifted by the same `15*z`
+  // and pushed down by `headroom`. Both spaces therefore share one pixel scale
+  // **and** one elevation lift, so the difference between them is a constant:
+  //
+  //   ourX = pan.x + 30*W          ourY = pan.y - 15*(W+1) + headroom
+  //
+  // The elevation cancels, which is the part worth stating: nothing here has to
+  // ask what the tile under the camera is standing on, and nothing has to invert
+  // the ambiguous picture-to-cell mapping the pick buffer exists for.
+  //
+  // **The pan is the viewport's CENTRE, not its corner.** Not visible in
+  // `setPan`; fixed by the only place the inverse is written out,
+  // `MapTileIntersectHelper#intersectTilesByScreenPos`:
+  // `screen = viewportPoint + o + pan - viewportSize/2`, which at the viewport's
+  // middle is exactly `o + pan`. `computeCameraPanLimits` corroborates it by
+  // offsetting its minimum corner by `+width/2, +height/2`.
+  //
+  // **What would break this:** a camera zoom. Every expression above is 1:1 with
+  // viewport pixels, and the client has no zoom today -- `viewport` is the
+  // canvas size and no scale factor appears on the path. If one ever arrives the
+  // rectangle grows or shrinks wrongly while staying centred, which is the
+  // symptom to look for.
+
+  // The client draws its own viewport outline in the interface's border colour.
+  // White at less than full strength here: a solid white box over a bright cliff
+  // reads as terrain, and the whole point of this rectangle is that it is not
+  // part of the map.
+  const RADAR_VIEWPORT_COLOUR = "rgba(255,255,255,0.85)";
+
+  /**
+   * The camera's rectangle in the panel's canvas pixels, or null when there is
+   * no camera to ask.
+   *
+   * Null rather than a guess in every one of its refusals: out of a match, before
+   * the world scene exists, and on a client that stops reporting a viewport. A
+   * rectangle drawn from a pan that could not be read would be a box sitting
+   * confidently in the wrong place, which is worse than no box.
+   */
+  function radarViewportRect(canvas) {
+    const ui = state.combatant;
+    const scene = ui && ui.worldScene;
+    const cam = scene && scene.cameraPan;
+    if (!radarGeo || !cam || typeof cam.getPan !== "function") return null;
+    const view = scene.viewport;
+    if (!view || !(view.width > 0) || !(view.height > 0)) return null;
+    // Safe to hold: `getPan()` is `{...this.pan}`, a copy, measured by the probe
+    // rather than assumed -- an alias would drift under us between repaints.
+    const pan = cam.getPan();
+    if (!pan || !Number.isFinite(pan.x) || !Number.isFinite(pan.y)) return null;
+
+    const geo = radarGeo;
+    const cx = pan.x + (geo.block.width / 2) * geo.mapWidth;
+    const cy = pan.y - (geo.block.height / 2) * (geo.mapWidth + 1) + geo.headroom;
+    const sx = canvas.width / geo.cropWidth;
+    const sy = canvas.height / geo.cropHeight;
+    return {
+      left: (cx - view.width / 2 - geo.view.x) * sx,
+      top: (cy - view.height / 2 - geo.view.y) * sy,
+      width: view.width * sx,
+      height: view.height * sy,
+    };
+  }
+
+  /**
+   * The rectangle itself, stroked over everything.
+   *
+   * Inset by half the stroke so the line lands *inside* the rectangle it
+   * describes: a canvas stroke straddles its path, and a box drawn at the exact
+   * camera bounds would claim half a line-width of ground the camera cannot see
+   * on every side.
+   *
+   * The width follows the panel for the reason the pictograms' size does -- a
+   * one-pixel line on a panel dragged across the screen is a thread -- but it is
+   * floored at one, because a line thinner than a pixel is drawn as a fainter
+   * one rather than a smaller one and simply reads as dirt.
+   */
+  function drawRadarViewport(ctx, canvas) {
+    const rect = radarViewportRect(canvas);
+    if (!rect) return;
+    const line = Math.max(1, Math.round(canvas.width / 400));
+    ctx.save();
+    ctx.strokeStyle = RADAR_VIEWPORT_COLOUR;
+    ctx.lineWidth = line;
+    ctx.strokeRect(
+      rect.left + line / 2,
+      rect.top + line / 2,
+      Math.max(0, rect.width - line),
+      Math.max(0, rect.height - line)
+    );
+    ctx.restore();
+  }
+
+  // --- the dials --------------------------------------------------------------
+  //
+  // The options page owns the canonical appearance controls; this is the mirror
+  // over the live radar, which is the surface the plan says you tune against —
+  // a dial moved here repaints the panel under your hand instead of a stored
+  // picture you then have to go and look at.
+  //
+  // **Which dials are here is a rule, not a selection.** Exactly the ones that
+  // change a live picture without making a single stored render stale: the
+  // global brightness/contrast pair, the two blip dials, the gap-field dim and
+  // the shroud switch. Every one of those is absent from `tuneKey` — asserted
+  // in scripts/check-radar.mjs by moving all of them and finding the stamp
+  // still empty — so a match spent dragging them costs no re-render at all. The
+  // per-layer dials and the two ore colours are baked, and they belong where
+  // there is a big picture to judge them against.
+  //
+  // **They are not `<input type=range>`, and they cannot be.** The client holds
+  // a pointer lock for the whole of a match: under it no DOM element can be
+  // dragged, `clientX/clientY` freeze, and a wheel scrolls whatever is under the
+  // position the cursor froze at. So a dial is a track you *click* — one press
+  // anywhere along it sets the value, which needs no drag, no scroll and no
+  // focus — and the right button puts it back to its default. The same two
+  // presses work with a free mouse, so there is one behaviour rather than two.
+
+  /**
+   * The quantum a click on a track lands on.
+   *
+   * Fine enough that the dial does not feel notched, coarse enough that the
+   * value under it reads as a number a person chose. It is also what makes a
+   * click reproducible: without it the same pixel gives a different value on a
+   * panel that has been resized by two pixels.
+   */
+  const RADAR_DIAL_STEP = 0.05;
+
+  let radarDialsOpen = false;
+
+  /**
+   * The dials, in the order they are drawn.
+   *
+   * Built from the shared table's own `LIMITS` rather than from numbers written
+   * here: the options page reads the same ranges, and two copies of a clamp is
+   * how one surface starts allowing what the other forbids.
+   */
+  function radarDialList() {
+    const tune = window.__cdcTune;
+    if (!tune) return [];
+    const L = tune.LIMITS;
+    return [
+      { path: ["all", "brightness"], label: "brightness", range: L.brightness },
+      { path: ["all", "contrast"], label: "contrast", range: L.contrast },
+      { path: ["units", "size"], label: "blip size", range: L.unitSize },
+      { path: ["units", "brightness"], label: "blip light", range: L.brightness },
+      { path: ["shroudDim"], label: "gap field", range: L.shroudDim },
+    ];
+  }
+
+  /**
+   * The value at `fraction` along a dial, on the step.
+   *
+   * The fraction is *not* clamped on the way in: the clamp on the way out is
+   * over the same interval and does the same job, and a mutation run found the
+   * pair by leaving the first one out and changing nothing anywhere.
+   */
+  function radarDialValue(range, fraction) {
+    const raw = range[0] + fraction * (range[1] - range[0]);
+    const stepped = Math.round(raw / RADAR_DIAL_STEP) * RADAR_DIAL_STEP;
+    // Rounded off the float as well as clamped: 0.30000000000000004 is a true
+    // answer and an unreadable readout.
+    return Math.min(range[1], Math.max(range[0], Math.round(stepped * 100) / 100));
+  }
+
+  /** Where a dial's current value sits along its own range, 0..1. */
+  function radarDialAt(dial, look) {
+    const value = radarDialRead(dial, look);
+    const span = dial.range[1] - dial.range[0];
+    return span ? Math.min(1, Math.max(0, (value - dial.range[0]) / span)) : 0;
+  }
+
+  function radarDialRead(dial, look) {
+    let node = look;
+    for (const step of dial.path) node = node && node[step];
+    return node;
+  }
+
+  /**
+   * The whole table with one dial moved.
+   *
+   * Normalised first and then mutated, which is safe precisely because
+   * `normalise` builds a fresh object every time — and it is what keeps a table
+   * written from here identical in shape to one written from the options page.
+   */
+  function radarDialPatch(look, dial, value) {
+    const next = window.__cdcTune ? window.__cdcTune.normalise(look) : { ...look };
+    let node = next;
+    for (let i = 0; i < dial.path.length - 1; i++) node = node[dial.path[i]];
+    node[dial.path[dial.path.length - 1]] = value;
+    return next;
+  }
+
+  /**
+   * A dial moved: every surface that shows the table, and then storage.
+   *
+   * The write goes out on the same channel the preference toggles use, and the
+   * echo comes back through the config push — where the repaint is gated on the
+   * value actually having changed, so our own write does not redo this work.
+   */
+  function applyRadarLook(next) {
+    state.appearance = next;
+    if (window.__cdcHq && typeof window.__cdcHq.setLook === "function") {
+      window.__cdcHq.setLook(next);
+    }
+    repaintAppearance();
+    paintRadar();
+    renderRadarDials();
+    window.postMessage({ source: "cdc-page", type: "appearance-set", appearance: next }, "*");
+  }
+
+  /**
+   * A press on a dial. `at` is a viewport point, or null for the right button,
+   * which puts the dial back to its default rather than reading a position.
+   */
+  function pressRadarDial(index, at) {
+    const dial = radarDialList()[index];
+    const tune = window.__cdcTune;
+    if (!dial || !tune) return false;
+    const look = tune.normalise(state.appearance);
+    let value;
+    if (!at) {
+      value = radarDialRead(dial, tune.DEFAULT_TUNE);
+    } else {
+      const fraction = radarDialFraction(index, at);
+      if (fraction === null) return false;
+      value = radarDialValue(dial.range, fraction);
+    }
+    applyRadarLook(radarDialPatch(look, dial, value));
+    return true;
+  }
+
+  /**
+   * Where along a drawn track a viewport point falls, 0..1, or null.
+   *
+   * Shared by the appearance dials and the size row, which is what keeps them
+   * one control with two meanings rather than two controls that drift apart:
+   * the press arithmetic from a viewport point is the part that can be wrong by
+   * a whole panel width, and there is one copy of it.
+   */
+  function radarTrackFraction(track, at) {
+    if (!track || !at) return null;
+    const box = track.getBoundingClientRect();
+    if (!box.width) return null;
+    return Math.min(1, Math.max(0, (at.x - box.left) / box.width));
+  }
+
+  /** Where along dial `index`'s drawn track a viewport point falls, or null. */
+  function radarDialFraction(index, at) {
+    if (!radarEl) return null;
+    return radarTrackFraction(
+      radarEl.querySelector(`.cdc-dial[data-dial="${index}"] .cdc-dial-track`),
+      at
+    );
+  }
+
+  /**
+   * A press on the size row: the panel's scale, set without aiming at anything.
+   *
+   * This row is the whole of the "no outlining the borders" requirement. The
+   * 14px grip is a corner that has to be found with a cursor the client draws
+   * itself, and under a pointer lock no DOM element can be dragged at all -- so
+   * the scale gets the one control surface that is proven to work in a match: a
+   * panel-wide track that one press anywhere along sets. The right button puts
+   * it back to the default, which is the idiom the dials above already use.
+   *
+   * The scale is the PICTURE's height. The width follows the map's shape from
+   * there, through the one function that sizes this panel, so there is a single
+   * degree of freedom and no way to set a shape the map does not have.
+   */
+  function pressRadarSize(at) {
+    if (!radarEl) return false;
+    let stageHeight;
+    if (!at) {
+      stageHeight = radarFallbackRect().stageHeight;
+    } else {
+      const fraction = radarTrackFraction(
+        radarEl.querySelector(".cdc-dial-size .cdc-dial-track"),
+        at
+      );
+      if (fraction === null) return false;
+      stageHeight = radarSizeValue(fraction);
+    }
+    applyRadarScale(stageHeight, null, true);
+    // The readout and the fill are drawn from the panel as it now stands, so
+    // they are redrawn after it has been resized and not before.
+    renderRadarDials();
+    placeRadarCanvas();
+    paintRadar();
+    return true;
+  }
+
+  function toggleRadarDials() {
+    // Read before the drawer is drawn: `.cdc-radar-stage` is `flex: 1`, so the
+    // moment the drawer appears the stage has already given up the height. This
+    // is the number the panel is then re-sized to preserve — the user's ask, in
+    // one line: the drawer adds space, the map does not lose any.
+    const stage = radarEl && radarEl.querySelector(".cdc-radar-stage");
+    const keep = stage ? stage.getBoundingClientRect().height : 0;
+    radarDialsOpen = !radarDialsOpen;
+    renderRadarDials();
+    sizeRadarPanel(keep);
+    // The panel just changed height, so a bottom-anchored one has to give that
+    // space upwards instead of pushing its own foot off the screen. The stage's
+    // height is what was preserved, so the ResizeObserver does not fire here.
+    placeRadarFromAnchor();
+    // The stage should be the size it was, so this is a no-op for the canvas in
+    // the ordinary case — but the clamp and a missing stage can both move it, and
+    // the ResizeObserver only fires when something actually changed.
+    placeRadarCanvas();
+    paintRadar();
+  }
+
+  /**
+   * Draw the drawer, or take it away.
+   *
+   * Rebuilt row by row rather than re-created: a press is routed by the row's
+   * `data-dial`, and replacing the DOM under a mouse that is already down is how
+   * a click lands on a row that has moved.
+   */
+  function renderRadarDials() {
+    if (!radarEl) return;
+    const box = radarEl.querySelector(".cdc-radar-dials");
+    if (!box) return;
+    // "block" rather than "", because the stylesheet's own value is now `none`:
+    // the drawer has to be hidden before any script runs, or a panel opened out
+    // of a match shows an empty strip that `sizeRadarPanel` then counts.
+    box.style.display = radarDialsOpen ? "block" : "none";
+    const toggle = radarEl.querySelector(".cdc-radar-dials-toggle");
+    if (toggle) toggle.classList.toggle("cdc-on", radarDialsOpen);
+    if (!radarDialsOpen) return;
+
+    const tune = window.__cdcTune;
+    const dials = radarDialList();
+    const look = tune && dials.length ? tune.normalise(state.appearance) : null;
+
+    // The size row is drawn whether or not the appearance table loaded. It is
+    // the panel's own scale rather than one of the render's dials, and it is the
+    // only control here with no other way in -- an absent tune table must not
+    // take the resize down with it.
+    if (box.childElementCount !== dials.length + 2) {
+      box.textContent = "";
+      const size = document.createElement("div");
+      size.className = "cdc-dial cdc-dial-size";
+      size.title = "click the track to resize the panel · right-click for the default";
+      size.innerHTML =
+        '<span class="cdc-dial-label">size</span>' +
+        '<span class="cdc-dial-track"><i class="cdc-dial-fill"></i></span>' +
+        '<span class="cdc-dial-value"></span>';
+      box.append(size);
+      dials.forEach((dial, index) => {
+        const row = document.createElement("div");
+        row.className = "cdc-dial";
+        row.dataset.dial = String(index);
+        row.title = "click the track to set · right-click for the default";
+        row.innerHTML =
+          '<span class="cdc-dial-label"></span>' +
+          '<span class="cdc-dial-track"><i class="cdc-dial-fill"></i></span>' +
+          '<span class="cdc-dial-value"></span>';
+        row.querySelector(".cdc-dial-label").textContent = dial.label;
+        box.append(row);
+      });
+      const note = document.createElement("div");
+      note.className = "cdc-dial-note";
+      note.textContent = dials.length
+        ? "the per-layer dials and the ore colours are on the options page — those bake into the render"
+        : "the appearance table did not load";
+      box.append(note);
+    }
+
+    // The SCALE, not the stage as it stands. `toggleRadarDials` draws the drawer
+    // before it re-sizes the panel -- it has to, because the drawer's height is
+    // what it re-sizes by -- and `.cdc-radar-stage` is `flex: 1`, so for that one
+    // moment the stage has given the whole drawer up. Measured live, the row
+    // read 66 on a 220px picture (drive-radar, 2026-08-28). The stored number is
+    // the one the dial actually sets, and the stage is derived from it.
+    const sizeRow = box.querySelector(".cdc-dial-size");
+    if (sizeRow) {
+      const stageHeight = radarRect().stageHeight;
+      const value = sizeRow.querySelector(".cdc-dial-value");
+      const fill = sizeRow.querySelector(".cdc-dial-fill");
+      if (value) value.textContent = Math.round(stageHeight);
+      if (fill) fill.style.width = `${Math.round(radarSizeAt(stageHeight) * 100)}%`;
+    }
+
+    if (!look) return;
+    dials.forEach((dial, index) => {
+      const row = box.querySelector(`.cdc-dial[data-dial="${index}"]`);
+      if (!row) return;
+      const value = radarDialRead(dial, look);
+      row.querySelector(".cdc-dial-value").textContent = value.toFixed(2);
+      const fill = row.querySelector(".cdc-dial-fill");
+      if (fill) fill.style.width = `${Math.round(radarDialAt(dial, look) * 100)}%`;
+    });
+  }
+
+  // --- interaction ------------------------------------------------------------
+  //
+  // What a press on the picture does, and the slice that turns a picture into a
+  // radar: the left button orders, the right one moves the camera, and Alt with
+  // the right one drops a beacon. The last of those is also the one gesture here
+  // that works off the panel — `worldPing`, at the bottom, is the same beacon
+  // out in the game world, which is where the user asked for it.
+  //
+  // **The two ordinary buttons are handed to the client's own minimap path
+  // rather than reimplemented.** `WorldInteraction#executeMinimapClickCommand
+  // (tile, wasRightClick)` is the method the client's own radar dispatches a
+  // click into, and it carries four things that would each be a separate bug to
+  // rebuild here. Read out of the bundle at v0.83.3:
+  //
+  //   executeMinimapClickCommand(tile, wasRightClick) {
+  //     let ordered = false;
+  //     if (wasRightClick === this.isRightClickMove()) {
+  //       const hover = this.minimapHandler.getHover(tile);
+  //       if (this.currentMode) { ...the mode consumes the click...
+  //       } else ordered = this.defaultActionHandler.execute(hover, selected, ...);
+  //     }
+  //     ordered || this.minimapHandler.panToTile(tile);
+  //   }
+  //
+  //   - **which button orders is a user setting** — `isRightClickMove()` is the
+  //     client's own option, so a player who swapped the buttons there has them
+  //     swapped here too, without this file knowing the option exists;
+  //   - **what the order is** comes from `DefaultActionHandler`: move on open
+  //     ground, attack on an enemy, capture under an engineer, repair, dock. A
+  //     hardcoded `OrderType.Move` would be wrong on every one of those;
+  //   - **a click mode wins over an order** — a building waiting to be placed or
+  //     a superweapon waiting for a target consumes the click, exactly as it
+  //     does on the client's own radar;
+  //   - **the pan is the fallback, not a second branch.** A click that issues no
+  //     order pans there, which is why a left click with nothing selected moves
+  //     the camera on the native radar as well.
+  //
+  // Nothing here pushes an action of its own, and that is the point: `pushOrder`
+  // would still have been ours to get right (the selection-sync action it sends
+  // first, the duplicate dedupe, the acknowledgement sound), and a pan is local
+  // render state that must not reach the wire at all.
+  //
+  // **The beacon is ours**, because the client has no one-click one:
+  // `KeyCommandType.PlaceBeacon` is a mode you enter and then click with, and
+  // the probe found it bound to nothing. `CombatantUi#handleBeacon(tile)` is the
+  // call underneath that mode, and it carries the client's own rate limit
+  // (`BeaconFxHandler#canPingLocation` — three live beacons, a third of a second
+  // apart). Alt with the right button is free: `WorldInteraction`'s mousedown
+  // path never reads `altKey`, and the client's own Alt bindings are all on the
+  // *left* button's default action.
+
+  /** Messages this panel says once rather than once per press. */
+  const radarSaid = new Set();
+
+  function radarSayOnce(message, level) {
+    if (radarSaid.has(message)) return;
+    radarSaid.add(message);
+    note(message, level);
+  }
+
+  /**
+   * The radar's own canvas under this press, or null if the press is not on it.
+   *
+   * Two ways in, as everywhere else in this file: with the mouse locked the
+   * event carries frozen coordinates and never reaches our elements at all, so
+   * the hit test is done by hand at the cursor the player can see; without the
+   * lock `e.target` is the browser's own answer.
+   *
+   * The bar and the letterbox margin are deliberately not included — those are
+   * what the panel is dragged by.
+   */
+  function radarPressTarget(e) {
+    if (!radarVisible || !radarEl) return null;
+    const target = mouseCaptured() ? underCursor() : e.target;
+    const canvas = target && target.closest ? target.closest(".cdc-radar-canvas") : null;
+    return canvas && radarEl.contains(canvas) ? canvas : null;
+  }
+
+  /**
+   * A press on the panel's own furniture — the dials drawer, and the button in
+   * the bar that opens it.
+   *
+   * Ahead of the picture, because the drawer sits over nothing the map needs and
+   * a press on it is not aimed at a cell. Under a pointer lock these elements
+   * cannot be clicked at all in the ordinary way — no DOM element can — so this
+   * is the only way either of them works during a match, which is the only time
+   * anybody wants them.
+   */
+  function radarChromePress(e) {
+    if (!radarVisible || !radarEl) return false;
+    const target = mouseCaptured() ? underCursor() : e.target;
+    if (!target || !target.closest || !radarEl.contains(target)) return false;
+    const toggle = target.closest(".cdc-radar-dials-toggle");
+    const row = target.closest(".cdc-dial");
+    if (!toggle && !row) return false;
+    if (e.button !== 0 && !(row && e.button === 2)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    if (toggle) {
+      toggleRadarDials();
+      return true;
+    }
+    // The right button carries no position on purpose: it is the "put this
+    // back" press, and reading a track position from it would move the dial
+    // instead of resetting it.
+    const at = e.button === 2 ? null : radarPressPoint(e);
+    // The size row is a row of the same shape and a different subject: it moves
+    // the panel, not the render, so it is routed by its class rather than by a
+    // `data-dial` index it deliberately does not have.
+    if (row.classList.contains("cdc-dial-size")) pressRadarSize(at);
+    else pressRadarDial(Number(row.dataset.dial), at);
+    return true;
+  }
+
+  /**
+   * Is this press anywhere on the radar panel at all?
+   *
+   * Wider than `radarPressTarget` and used for one thing: deciding whether to
+   * swallow the browser's context menu. The right button means something on the
+   * picture *and* on a dial now, and a menu over either is nobody's intention.
+   */
+  function overRadar(e) {
+    if (!radarVisible || !radarEl) return false;
+    const target = mouseCaptured() ? underCursor() : e.target;
+    return !!target && radarEl.contains(target);
+  }
+
+  /** Where the press landed, in viewport pixels — the game's cursor under a lock. */
+  function radarPressPoint(e) {
+    return mouseCaptured() ? cursorPoint() : { x: e.clientX, y: e.clientY };
+  }
+
+  /**
+   * The client's own tile object for one of our cells, or null.
+   *
+   * `getByMapCoords`, never a tile of our own making: the calls below all read
+   * fields off the real thing — `z` for how high the camera has to sit,
+   * `landType` for whether a target is ore, and the tile's identity itself for
+   * the beacon rate limit, which compares tiles by reference. An object with
+   * `rx` and `ry` on it would be quietly wrong in three places at once.
+   */
+  function radarTileAt(cell) {
+    const ui = state.combatant;
+    const tiles = ui && ui.game && ui.game.map && ui.game.map.tiles;
+    if (!tiles || typeof tiles.getByMapCoords !== "function") return null;
+    return tiles.getByMapCoords(cell.rx, cell.ry) || null;
+  }
+
+  /**
+   * What a press means.
+   *
+   * Alt is read on the right button only. On the left it is left to the client,
+   * which resolves its own modified default action from it — Alt+left is force
+   * move in this game, and shadowing that would be a worse clone than not
+   * having a beacon at all.
+   */
+  function radarPressAction(e) {
+    if (e.button === 2) return e.altKey ? "ping" : "client";
+    if (e.button === 0) return "client";
+    return null;
+  }
+
+  /**
+   * A beacon on that tile, through the client's own call.
+   *
+   * The single-player refusal is said rather than silently obeyed:
+   * `handleBeacon` begins `this.isSinglePlayer || …`, so in a skirmish the whole
+   * body is skipped and the gesture does nothing at all. A feature that looks
+   * broken is worse than one that says why it is not.
+   */
+  function radarPingAt(tile) {
+    const ui = state.combatant;
+    if (!ui || typeof ui.handleBeacon !== "function") {
+      radarSayOnce("this client has no beacon to drop — run __cdc.probe()", "warn");
+      return;
+    }
+    if (ui.isSinglePlayer) {
+      radarSayOnce("beacons are a multiplayer thing — the client drops them in a skirmish");
+      return;
+    }
+    ui.handleBeacon(tile);
+  }
+
+  /**
+   * The ordinary buttons, handed to the client.
+   *
+   * `isEnabled()` is the client's own gate on world interaction, asked here for
+   * the reason `activateSuperWeapon` asks it: it goes false while the client is
+   * not taking orders, and a click that got through then would be an order
+   * issued into a match that is already over.
+   */
+  function radarClickThrough(tile, rightButton) {
+    const world = state.combatant && state.combatant.worldInteraction;
+    if (!world || typeof world.executeMinimapClickCommand !== "function") {
+      radarSayOnce("this client's minimap click path is not where it was — the radar cannot order or pan", "warn");
+      return;
+    }
+    if (typeof world.isEnabled === "function" && !world.isEnabled()) return;
+    world.executeMinimapClickCommand(tile, rightButton);
+  }
+
+  /**
+   * A press of the mouse, while the radar is up. Returns whether it was ours.
+   *
+   * Swallowed the moment it is known to be on the picture, before anything is
+   * decided about what it means: the client reads a stray mousedown as a world
+   * command, so a press over this panel that fell through would order the
+   * selection to whatever the panel happens to be sitting on top of. Every
+   * refusal below that point is a press that does nothing, not a press that
+   * reaches the game.
+   */
+  function radarPress(e) {
+    if (radarChromePress(e)) return true;
+    if (!radarPressTarget(e)) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    const action = radarPressAction(e);
+    if (!action) return true;
+    // On the canvas but off the map: the letterbox margin, and the cells the
+    // picture does not reach at this panel size.
+    const cell = radarCellAt(radarPressPoint(e));
+    if (!cell) return true;
+    const tile = radarTileAt(cell);
+    if (!tile) return true;
+    if (action === "ping") radarPingAt(tile);
+    else radarClickThrough(tile, e.button === 2);
+    return true;
+  }
+
+  /**
+   * The same gesture out in the world: Alt with the right button drops a beacon
+   * on the tile under the cursor, wherever the cursor is.
+   *
+   * **Mousedown, in the capture phase, and it has to be both.** The client
+   * deselects on the *press*, not on the release:
+   *
+   *   2 === e.button && (this.isRightClickPanAllowed() || this.isRightClickMove()
+   *                      || this.unitSelectionHandler.deselectAll())
+   *
+   * so a handler on `click` or `mouseup` would run with the selection already
+   * gone — and keeping the selection is the requirement that makes this gesture
+   * worth having. Capturing on `window` puts us ahead of the client's own
+   * listener, and `stopPropagation` is what stops that line from running.
+   *
+   * Nothing on that path reads `altKey`; the whole module reads it three times
+   * and every one of them is about a *key* event. That is what makes Alt free to
+   * take here, and it was measured rather than assumed.
+   *
+   * The tile is `worldInteraction.getCurrentHover()`, which returns
+   * `{ entity, gameObject, tile }` and is the client's own answer to "which tile
+   * is the cursor on". It is maintained under pointer lock, where the DOM's own
+   * coordinates are frozen — so this converts no screen point of its own, and
+   * `underCursor` is asked only about our own boxes.
+   *
+   * **A press this cannot answer is left alone.** Swallowing an Alt+right that
+   * finds no tile, or that lands on a panel of ours, would eat the client's
+   * ordinary right click and the deselect with it.
+   */
+  function worldPing(e) {
+    if (e.button !== 2 || !e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return false;
+    const world = state.combatant && state.combatant.worldInteraction;
+    if (!world || typeof world.getCurrentHover !== "function") return false;
+    // Our own boxes are not the world. The radar has its own handler for this
+    // gesture, aimed at the cell that was clicked rather than at whatever tile
+    // the game cursor happens to be over behind the panel.
+    if (ourBox(mouseCaptured() ? underCursor() : e.target)) return false;
+    if (typeof world.isEnabled === "function" && !world.isEnabled()) return false;
+    const hover = world.getCurrentHover();
+    const tile = hover && hover.tile;
+    if (!tile) return false;
+    e.preventDefault();
+    e.stopPropagation();
+    radarPingAt(tile);
+    return true;
+  }
+
+  // --- the tick -------------------------------------------------------------
+
+  /**
+   * Re-sweep while the panel is open, then book the next one.
+   *
+   * `setTimeout` re-booking rather than an interval, on the memory readout's
+   * precedent: the cadence follows the panel and there is nothing to tear down
+   * — a closed panel simply does not book another. Not rAF either: this is not
+   * a per-frame job, and a hidden tab has nothing to reveal.
+   */
+  function radarSweepTick() {
+    radarSweepTimer = 0;
+    if (!radarVisible) return;
+    radarTicks++;
+    // The radar flag, polled. The client's own `SidebarRadar` polls
+    // `CombatantSidebarModel#radarEnabled` every frame rather than subscribing
+    // to `RadarOnOffEvent`, and this is that poll on the clock this panel
+    // already runs -- an event subscription would buy an unsubscribe lifecycle
+    // for nothing. Only a CHANGE re-renders: `renderRadar()` rebuilds the
+    // panel's whole box and re-places the canvas, and doing that ten times a
+    // second to say the same thing is not a poll but a repaint loop.
+    const offline = radarOffline();
+    const flipped = offline !== radarOfflineLast;
+    radarOfflineLast = offline;
+    // The expensive half, on its own longer cadence: one pass over every cell
+    // of the map, against a mask that moves at scouting pace.
+    const moved = radarTicks % RADAR_SWEEP_EVERY === 0 ? sweepRadarShroud() : false;
+    const oreMoved = radarTicks % RADAR_ORE_EVERY === 0 ? sweepRadarOre() : false;
+    // The cheap half, every tick. A repaint is a blit of a canvas already
+    // composited plus a few hundred fills, and proving that nothing moved would
+    // cost the same walk over the world that drawing it does -- so it repaints
+    // while there is a match to repaint, and only on a mask change otherwise.
+    // A flip renders instead of painting: the ladder is what shows or hides the
+    // canvas, and it paints for itself once it has decided there is a picture.
+    // While the radar is off there is nothing to paint into -- the canvas is
+    // `display: none` -- but the sweeps above keep running, so the mask is
+    // already current the moment the radar comes back.
+    if (flipped) renderRadar();
+    else if (!offline && (moved || oreMoved || state.combatant)) paintRadar();
+    radarSweepTimer = window.setTimeout(radarSweepTick, RADAR_TICK_MS);
+  }
+
+  function syncRadarSweep() {
+    if (!radarVisible) {
+      if (radarSweepTimer) window.clearTimeout(radarSweepTimer);
+      radarSweepTimer = 0;
+      return;
+    }
+    // Guarded against a second loop: two of these would sweep the whole map
+    // twice as often for one picture.
+    if (!radarSweepTimer) radarSweepTick();
+  }
+
+  /** A viewport point -> a fraction of the picture, or null if outside it. */
+  function radarFractionAt(point) {
+    if (!point || !radarEl || !radarPlaced) return null;
+    const stage = radarEl.querySelector(".cdc-radar-stage");
+    const box = stage.getBoundingClientRect();
+    const x = point.x - box.left - radarPlaced.left;
+    const y = point.y - box.top - radarPlaced.top;
+    if (x < 0 || y < 0 || x > radarPlaced.width || y > radarPlaced.height) return null;
+    return { x: x / radarPlaced.width, y: y / radarPlaced.height };
+  }
+
+  /**
+   * Which cell each pixel of the picture on screen belongs to.
+   *
+   * Rasterised by the renderer, from the same geometry the picture is drawn
+   * from, because the inverse of that geometry is ambiguous: elevation lifts a
+   * cell up the picture, so one pixel can belong to two cells and the flat
+   * inverse reads a z=4 cell two tiles off. scripts/check-radar.mjs pins both
+   * halves — that the inverse is wrong, and that this is not.
+   *
+   * Built on demand rather than beside the backing canvas: a resize drag fires
+   * a repaint per frame and none of those frames is clicked, so the first
+   * click after a resize pays for the buffer and the drag pays nothing.
+   *
+   * **Stamped by size alone, and deliberately not with the backing's stamp.**
+   * The dials change what colour a pixel is and never which cell it is, so a
+   * slider must not throw this away.
+   */
+  function ensureRadarPick() {
+    const hq = window.__cdcHq;
+    const mapFile = radarMapFile();
+    if (!radarEl || !radarGeo || !mapFile) return null;
+    if (!hq || typeof hq.pickBuffer !== "function") return null;
+    const canvas = radarEl.querySelector(".cdc-radar-canvas");
+    if (!canvas || !canvas.width || !canvas.height) return null;
+
+    const stamp = `${canvas.width}x${canvas.height}`;
+    // The failure is cached with the success, so a map the renderer cannot
+    // rasterise warns once rather than once per mouse move.
+    if (radarPick && radarPick.stamp === stamp && radarPick.mapFile === mapFile) {
+      return radarPick.buffer;
+    }
+    // **One cell list for both halves.** The mask is built by walking the live
+    // map and this buffer used to take the renderer's default, `mapFile.tiles`.
+    //
+    // That difference was 1.11.0's diagnosis for the black half of the panel
+    // and it was **wrong**: the coverage line below measured the two on a live
+    // map and they are the same 19690 cells. Kept anyway, and demoted from a
+    // fix to hygiene — one source for the two consumers of the map's cells is
+    // worth having on its own, and the real defect (the id packing, see
+    // `cellId` in hq-preview.js) was found by the measurement that shipped
+    // beside the wrong fix rather than by it.
+    const list = radarCellList(mapFile);
+    let buffer = null;
+    try {
+      buffer = hq.pickBuffer(mapFile, canvas.width, canvas.height, list || undefined);
+    } catch (e) {
+      note(`radar pick buffer failed — ${e && e.message}`, "warn");
+    }
+    if (buffer) noteRadarPickCoverage(buffer, list, mapFile);
+    radarPick = { buffer, stamp, mapFile };
+    return buffer;
+  }
+
+  /**
+   * What the buffer actually covers, said out loud once per build.
+   *
+   * **This line is what refuted 1.11.0's diagnosis**, which is the argument for
+   * keeping it. Two matches had gone to guesses about a black half of the panel
+   * because nothing reported anything: the terrain drew, so the render was
+   * fine; the sweep logged its 19690 cells, so the walk was fine. The theory
+   * was that the buffer read a different, sparser list. It printed
+   * `19690 cells walked … mapFile.tiles alone would have given 19690` — equal,
+   * so the theory was dead in one match instead of surviving another.
+   *
+   * What it says now is a live measurement of the id space: `walked` against
+   * how many of those cells reach a pixel at this panel size. Nothing else in
+   * the extension can observe either number.
+   */
+  function noteRadarPickCoverage(buffer, list, mapFile) {
+    const distinct = new Set();
+    let off = 0;
+    for (let i = 0; i < buffer.ids.length; i++) {
+      const id = buffer.ids[i];
+      if (id < 0) off++;
+      else distinct.add(id);
+    }
+    // The renderer's own default expression, evaluated here for comparison
+    // only, and reported rather than warned about. On the map this was measured
+    // on the two are equal; a difference would be worth knowing and is still
+    // not a fault, since the buffer takes the walked list either way.
+    const fallback = mapFile.tiles
+      ? Array.prototype.filter.call(mapFile.tiles, Boolean).length
+      : 0;
+    const walked = list ? list.length : 0;
+    const line =
+      `radar pick buffer ${buffer.width}x${buffer.height}: ` +
+      `${walked} cells walked, ${distinct.size} of them reach a pixel, ` +
+      `${off} pixels are off the map; mapFile.tiles alone would have given ${fallback}`;
+    if (line === radarPickNoted) return;
+    radarPickNoted = line;
+    note(line);
+  }
+
+  /** The map cell under a viewport point, or null if that is not the map. */
+  function radarCellAt(point) {
+    const at = radarFractionAt(point);
+    const pick = at && ensureRadarPick();
+    if (!pick) return null;
+    const x = Math.min(pick.width - 1, Math.max(0, Math.floor(at.x * pick.width)));
+    const y = Math.min(pick.height - 1, Math.max(0, Math.floor(at.y * pick.height)));
+    const id = pick.ids[y * pick.width + x];
+    if (id < 0) return null;
+    // `idStride`, never `mapWidth`: the ids are not row-major over the map's
+    // width. See the note beside `cellId` in hq-preview.js.
+    return { rx: id % pick.idStride, ry: Math.floor(id / pick.idStride) };
+  }
+
+  /**
+   * The tile under the cursor, in the panel's own bar.
+   *
+   * The pick buffer's only consumer until the slice that orders units, and it
+   * is written now rather than with that one because a buffer with no consumer
+   * cannot be checked by the person the radar is for: this readout is how a
+   * live match answers whether the cell under the cursor is the cell the eye
+   * is on. Nothing else here can answer that — every check in
+   * scripts/check-radar.mjs is the arithmetic agreeing with itself.
+   */
+  function syncRadarReadout() {
+    if (!radarVisible || !radarEl) return;
+    const at = radarEl.querySelector(".cdc-radar-at");
+    if (!at) return;
+    const cell = radarCellAt(cursorPoint());
+    const text = cell ? `${cell.rx},${cell.ry}` : "";
+    if (at.textContent !== text) at.textContent = text;
+    syncRadarCredits();
+  }
+
+  /**
+   * The bar says how much money the player has, in place of the word "Radar".
+   *
+   * The word was furniture: the panel is unmistakably a radar, and the one
+   * number it displaced is invisible whenever the client's own interface is
+   * hidden -- which is when this panel is most likely to be the only thing on
+   * screen. Asked for 2026-08-26.
+   *
+   * `player.credits` is a plain getter on the client's own Player, so this is a
+   * read on a tick the bar already runs rather than anything subscribed. Outside
+   * a match there is no player and the label goes back to naming the panel,
+   * because a bar reading "0" before a game starts would look like a readout
+   * that is broken rather than one that has nothing to say yet.
+   */
+  function syncRadarCredits() {
+    const title = radarEl.querySelector(".cdc-radar-title");
+    if (!title) return;
+    const player = state.combatant ? state.combatant.player : null;
+    const credits = player ? player.credits : null;
+    const text = typeof credits === "number" ? String(Math.floor(credits)) : "Radar";
+    if (title.textContent !== text) title.textContent = text;
+  }
+
+  function toggleRadar(force) {
+    radarVisible = force === undefined ? !radarVisible : !!force;
+    renderRadar();
+    // The shared mousemove/mousedown pair is installed only while something
+    // wants it, and this panel is now one of the things that can want it.
+    syncOverlayMouse();
+    // And the shroud sweep, which is this panel's alone.
+    syncRadarSweep();
+    return radarVisible;
+  }
+
+  function resetRadarLayout() {
+    try {
+      localStorage.removeItem(RADAR_LAYOUT_KEY);
+    } catch (e) {
+      note("could not clear the stored radar layout", "warn");
+    }
+    renderRadar();
+    return radarRect();
+  }
+
   function resetLayout() {
     try {
       localStorage.removeItem(LAYOUT_KEY);
@@ -3499,6 +6670,9 @@
       note("could not clear the stored layout", "warn");
     }
     renderIngame();
+    // Both boxes, because "put it back" means every box the extension moved, and
+    // a second call nobody knows to make is a box that stays lost.
+    resetRadarLayout();
     return effectiveRect();
   }
 
@@ -3786,8 +6960,11 @@
       hqSwap: toggleHqPreview,
       hqFull: toggleHqFull,
       queues: toggleQueues,
+      taunts: toggleTaunts,
       net: toggleNet,
       memory: toggleMemory,
+      sidebar: toggleSidebar,
+      radar: toggleRadar,
     };
   }
 
@@ -5551,6 +8728,72 @@
   }
 
   /**
+   * Follow the cursor through a pointer lock, which the DOM alone cannot do.
+   *
+   * Under a real lock the browser freezes `clientX/clientY` at the point the
+   * lock was taken and moves the live signal into `movementX/movementY` — so
+   * `state.pointer`, read straight off the event, is right exactly until a
+   * match starts and stale for the rest of it. Integrating the deltas ourselves
+   * is what the client's own `Pointer` does with them, and it leaves
+   * `cursorPoint()` a live position that needs no object of the client's to
+   * have been captured first.
+   *
+   * With the mouse free the integrated point is held equal to the DOM's, which
+   * is what makes it a correct seed the instant a lock is taken rather than a
+   * position left over from the last one.
+   */
+  function trackPointer(e) {
+    state.pointer = { x: e.clientX, y: e.clientY };
+    if (!mouseCaptured()) {
+      state.lockedPointer = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    // A missing delta is taken as zero rather than added: `undefined` turns the
+    // point into NaN, `elementFromPoint` answers null for that, and every hit
+    // test downstream then misses in silence — the same failure shape as the
+    // stale position this exists to fix.
+    const from = state.lockedPointer || state.pointer;
+    const dx = typeof e.movementX === "number" ? e.movementX : 0;
+    const dy = typeof e.movementY === "number" ? e.movementY : 0;
+    // Clamped to the viewport, because the deltas keep arriving after the real
+    // cursor has run into the edge of the screen: unclamped, the integrated
+    // point walks off into coordinates no element occupies and stays there
+    // until the same distance is travelled back.
+    state.lockedPointer = {
+      x: Math.min(Math.max(from.x + dx, 0), Math.max(window.innerWidth - 1, 0)),
+      y: Math.min(Math.max(from.y + dy, 0), Math.max(window.innerHeight - 1, 0)),
+    };
+  }
+
+  /**
+   * Which return inside `cursorPoint()` last fired, and why the branches above
+   * it lost.
+   *
+   * Written by `cursorPoint` itself, so `dragReport` can name the source that
+   * actually ran without re-evaluating the guards — two copies of that decision
+   * are two copies that drift. The report derived it from `state.pointerUi`
+   * being non-null until now, which named the client's pointer for every match
+   * whose pointer was captured but unusable: exactly the case the report exists
+   * to find, reported as the case it rules out.
+   */
+  let cursorBranch = "dom";
+  let cursorWhy = "cursorPoint() has not been called yet";
+
+  /** The branch's name, its wording for a player, and why the others lost. */
+  function cursorSource() {
+    return {
+      branch: cursorBranch,
+      source:
+        cursorBranch === "client"
+          ? "the client's pointer"
+          : cursorBranch === "integrated"
+            ? "ours, integrated from movementX/movementY"
+            : "the DOM's",
+      why: cursorWhy,
+    };
+  }
+
+  /**
    * Where the player's cursor actually is, in viewport pixels.
    *
    * **Not** `state.pointer` when it can be helped. The client holds a pointer
@@ -5562,7 +8805,10 @@
    *
    * `Pointer#getPosition()` is the position the client itself draws at, in
    * canvas pixels; the canvas's own box turns it back into viewport pixels.
-   * `state.pointer` remains the fallback for anything before a match.
+   * Three sources, in that order of trust: the client's pointer, then the point
+   * `trackPointer` integrates from `movementX/movementY` for a match whose
+   * client pointer was never captured, then `state.pointer` — which is right
+   * and live for everything outside a lock.
    */
   function cursorPoint() {
     const ui = state.pointerUi;
@@ -5587,12 +8833,39 @@
             rect,
             { width: ui.canvas.width, height: ui.canvas.height }
           );
+          cursorBranch = "client";
+          cursorWhy = "the client's own pointer, converted through chordScreenBox";
           return { x: box.left, y: box.top };
         }
+        cursorWhy = at
+          ? "the client's canvas has an empty rect"
+          : "the client's pointer returned no position";
       } catch (e) {
         note(`could not read the client's pointer (${e && e.message})`, "warn");
+        cursorWhy = `the client's pointer threw — ${e && e.message}`;
       }
+    } else {
+      // Only ever an explanation of a decision the guard above has already made:
+      // it names the term that failed, it never re-decides which branch runs.
+      cursorWhy = !mouseCaptured()
+        ? "the mouse is free, so the DOM's own coordinates are live and right"
+        : !ui
+          ? "no client pointer was captured — Pointer.prototype.init was patched after the client had already called it, or never"
+          : typeof ui.getPosition !== "function"
+            ? "the captured client pointer has no getPosition()"
+            : "the captured client pointer has no canvas";
     }
+    // No client pointer, or one that had nothing usable to give. Under a lock
+    // the DOM's own coordinates are frozen, so the point `trackPointer`
+    // integrates is the only live answer left. Second and never first: the
+    // client's pointer is the one the game actually DRAWS, and a position of
+    // ours disagreeing with the cursor the player can see would be a worse bug
+    // than a stale one.
+    if (mouseCaptured() && state.lockedPointer) {
+      cursorBranch = "integrated";
+      return state.lockedPointer;
+    }
+    cursorBranch = "dom";
     return state.pointer;
   }
 
@@ -6029,7 +9302,10 @@
    * the frozen cursor, which is another reason not to read a position from it.
    */
   function onOverlayContextMenu(e) {
-    if (!chordEl) return;
+    // The radar is here for the same reason the grid is: its right button moves
+    // the camera and Alt with it drops a beacon, so a browser menu on top of
+    // either is nobody's intention.
+    if (!chordEl && !overRadar(e)) return;
     e.preventDefault();
     e.stopPropagation();
   }
@@ -6068,7 +9344,15 @@
   /** Is this element one of ours — a box the game's cursor would be hidden behind? */
   function ourBox(target) {
     if (!target) return false;
-    return (!!chordEl && chordEl.contains(target)) || (!!queuesEl && queuesEl.contains(target));
+    return (
+      (!!chordEl && chordEl.contains(target)) ||
+      (!!tauntEl && tauntEl.contains(target)) ||
+      (!!queuesEl && queuesEl.contains(target)) ||
+      // The radar joins the list the moment its canvas has a cell under every
+      // pixel: aiming at a tile you cannot see the cursor over is the dead
+      // reckoning this drawn cursor exists to end.
+      (!!radarEl && radarVisible && radarEl.contains(target))
+    );
   }
 
   /**
@@ -6081,6 +9365,11 @@
    * this runs on every mouse move over a running match.
    */
   function onOverlayMouseMove() {
+    // Ahead of the lock check, because the radar's readout is the one thing
+    // here that is wanted with a free mouse too — it is how the panel is read
+    // outside a match, and `cursorPoint` already falls back to the DOM's own
+    // position when nothing is holding the mouse.
+    syncRadarReadout();
     if (!mouseCaptured()) {
       drawCursor(null);
       return;
@@ -6089,7 +9378,10 @@
     const target = at ? document.elementFromPoint(at.x, at.y) : null;
     drawCursor(ourBox(target) ? at : null);
     const tile = target && target.closest ? target.closest(".cdc-chord-slot") : null;
-    const want = chordEl && tile && chordEl.contains(tile) ? tile : null;
+    // Whichever of the two overlays is up — they never are together, and both
+    // draw the same tile under the same class.
+    const holder = chordEl || tauntEl;
+    const want = holder && tile && holder.contains(tile) ? tile : null;
     if (want === hoveredTile) return;
     if (hoveredTile) hoveredTile.classList.remove("hovered");
     if (want) want.classList.add("hovered");
@@ -6112,13 +9404,19 @@
     // client draws. It rides with the move listener because the two are wanted
     // in exactly the same states.
     window.removeEventListener("mousedown", onPanelMouseDown, true);
-    if (!chordEl && !queuesEl && !netEl && !(memPanel && memPanel.visible())) {
+    // And the browser's own second half of a right press, which the radar's
+    // camera button and its beacon both need swallowed. It rides here rather
+    // than with the panel because the handler decides for itself whether the
+    // press is over anything of ours.
+    window.removeEventListener("contextmenu", onOverlayContextMenu, true);
+    if (!chordEl && !tauntEl && !queuesEl && !netEl && !(memPanel && memPanel.visible()) && !radarVisible) {
       drawCursor(null);
       hoveredTile = null;
       return;
     }
     window.addEventListener("mousemove", onOverlayMouseMove, true);
     window.addEventListener("mousedown", onPanelMouseDown, true);
+    window.addEventListener("contextmenu", onOverlayContextMenu, true);
     onOverlayMouseMove();
   }
 
@@ -6444,6 +9742,271 @@
     }
   }
 
+  // --- Collapsing the sidebar -----------------------------------------------
+
+  /**
+   * The client's whole right-hand sidebar, hidden, with its power bar kept and
+   * moved flush to the right edge of the screen.
+   *
+   * **Why there is anything left to hide.** Between the chord grid, the
+   * production panel and the key badges, everything the sidebar is *for* has a
+   * key now — the tabs, the cameos, the queue depth, the cancel — except one
+   * thing: the power bar, which no key can replace because it is not a command
+   * but a reading you glance at. So this is not "hide the HUD", it is "keep the
+   * one part of it that is information".
+   *
+   * **Three moves, and the third is the point.**
+   *
+   * 1. The sidebar's own container is hidden. It carries no `ref` in the
+   *    client's jsx — the refs inside it name the pieces, never the box — so it
+   *    is found rather than named: the one HUD child whose subtree holds the
+   *    power bar. An index into `getChildren()` would be the other way to say
+   *    it, and would be a guess about a render tree we do not own.
+   *    `sidebarButtonsContainer` is a second HUD child and is hidden with it.
+   * 2. The power bar is reparented onto the HUD and put at
+   *    `viewport.width - powerp.width`. Reparented rather than left where it is,
+   *    because it lives *inside* the container being hidden and
+   *    `gui/PointerEvents` gates a hit on the whole visibility chain — the same
+   *    property that makes hiding enough to stop clicks makes it too much to
+   *    keep one child visible. `SidebarPower#onFrame` writes `visible` and
+   *    nothing else, so a position set here stays set.
+   * 3. The world's viewport is widened into the freed strip, by the override on
+   *    `WorldView#computeWorldViewport`. Without it the strip is the renderer's
+   *    clear colour: `engine/gfx/Renderer` clears the canvas once a frame and
+   *    then gives each scene its own `setViewport`, and the world's is
+   *    `screen.width - hud.sidebarWidth` wide. `handleViewportChange` is the
+   *    client's own re-apply and carries the camera's pan limits with it, so the
+   *    view can reach the map edge the strip revealed rather than stopping where
+   *    a narrower screen used to stop.
+   *
+   * Read out of `ra2web.min.js` v0.83.3 on 2026-08-24.
+   */
+
+  // Whether the sidebar was collapsed when this tab last had an opinion. A
+  // preference rather than a per-match toggle: someone who plays without the
+  // sidebar plays without it, and having to press the key again every match
+  // would be the same as not having the key.
+  const SIDEBAR_KEY = "cdc.sidebarCollapsed";
+
+  // Read on first use rather than while this file is evaluating. Nothing here
+  // may call `note()` at load: it renders the debug panel, whose own binding is
+  // declared further down, so a warning raised during evaluation crashes on the
+  // temporal dead zone instead of being logged. A storage read is exactly the
+  // call that can fail and want to say so — caught by check-spawn-marks, whose
+  // sandbox has no `localStorage` at all.
+  let sidebarWanted = null;
+
+  // Held while the client's own sidebar menu is up, and it outranks the
+  // preference — see the hook on `Hud#showSidebarMenu`.
+  let sidebarLift = false;
+
+  // While the power bar is parked at the screen edge: the parent it was taken
+  // from, the box that was hidden, and the HUD both belong to. All three are
+  // needed. The owner is how it goes back; the HUD is how a rebuild is noticed,
+  // since after one the other two point into a tree that no longer exists; and
+  // the box is cached rather than searched for again because **parking makes it
+  // unfindable** — `sidebarBox` identifies the sidebar by which HUD child holds
+  // the power bar, and once the bar is a HUD child itself no child holds it any
+  // more. Found by the check, which is exactly the kind of defect a check that
+  // drives the feature twice is for: one collapse looked perfect, and the second
+  // call hid the power bar and the expand never brought the sidebar back.
+  let powerParked = null;
+
+  // The collapse state the HUD on screen is actually showing, so the world view
+  // is nudged when that changes rather than on every call.
+  let sidebarShown = null;
+
+  // The HUD already reported as having no power bar, so a client that has
+  // renamed the ref says so once rather than on every rebuild.
+  let powerMissing = null;
+
+  /** The stored preference, read once and remembered. */
+  function sidebarPref() {
+    if (sidebarWanted === null) {
+      try {
+        sidebarWanted = localStorage.getItem(SIDEBAR_KEY) === "1";
+      } catch (e) {
+        note("could not read whether the sidebar was collapsed last time", "warn");
+        sidebarWanted = false;
+      }
+    }
+    return sidebarWanted;
+  }
+
+  /** Is the sidebar to be hidden right now? */
+  function sidebarCollapsed() {
+    return sidebarPref() && !sidebarLift;
+  }
+
+  /** A UiObject's children, and an empty list for anything that is not one. */
+  function uiChildren(obj) {
+    const box = obj && typeof obj.getRenderableContainer === "function" ? obj.getRenderableContainer() : null;
+    const kids = box && typeof box.getChildren === "function" ? box.getChildren() : null;
+    return kids || [];
+  }
+
+  /** The UiObject directly holding `target`, searched from `root` downwards. */
+  function uiParentOf(root, target) {
+    for (const child of uiChildren(root)) {
+      if (child === target) return root;
+      const deeper = uiParentOf(child, target);
+      if (deeper) return deeper;
+    }
+    return null;
+  }
+
+  /**
+   * The HUD child whose subtree holds the power bar — the sidebar's own box.
+   *
+   * Strictly a *descendant*: the bar itself is never the answer, because the one
+   * state in which the bar is a HUD child is the one this feature put it in, and
+   * returning it there would hand the caller the thing it is trying to keep as
+   * the thing it is trying to hide. Only meaningful before the bar is parked;
+   * afterwards the answer is cached on `powerParked`.
+   */
+  function sidebarBox(gameHud, power) {
+    for (const child of uiChildren(gameHud)) {
+      if (child !== power && uiParentOf(child, power)) return child;
+    }
+    return null;
+  }
+
+  /**
+   * Put the sidebar into the state the preference asks for, whatever state it is
+   * in now.
+   *
+   * Idempotent on purpose, because it is called from four places that cannot see
+   * each other: the key, a HUD rebuild, and the two ends of the client's own
+   * sidebar menu. Every position it writes is computed from the client's own
+   * props rather than by adding an offset to whatever is there, so running it
+   * twice is running it once.
+   */
+  function applySidebar() {
+    // `gameHud` rather than `hud`, which in this file is the extension's own
+    // debug panel.
+    const gameHud = state.hud;
+    if (!gameHud || !gameHud.viewport) return;
+    const bar = gameHud.sidebarPower;
+    const power = bar && typeof bar.getUiObject === "function" ? bar.getUiObject() : null;
+    if (!power) {
+      // Not a silent return: a HUD with no power bar is a client that has
+      // renamed the ref, and the whole feature is inert from that moment. Once
+      // per HUD, because this runs on every rebuild and would otherwise fill the
+      // log with the same line at every resize.
+      if (powerMissing !== gameHud) {
+        powerMissing = gameHud;
+        note("the HUD has no power bar where the client kept one — the sidebar is left alone", "warn");
+      }
+      return;
+    }
+    // A rebuilt HUD invalidates everything the last move referred to — including
+    // the record of what is on screen, since what is on screen is new.
+    if (powerParked && powerParked.hud !== gameHud) {
+      powerParked = null;
+      sidebarShown = null;
+    }
+
+    const hide = sidebarCollapsed();
+    // Whether this feature owns what is on screen right now — see the gate
+    // below, and the tail, which does not disturb the client's world view for a
+    // collapse that has never been switched on.
+    let owned = false;
+    try {
+      const box = powerParked ? powerParked.box : sidebarBox(gameHud, power);
+      if (!box) {
+        note("the sidebar's own container is not where it was — leaving the sidebar alone", "warn");
+        return;
+      }
+      const props = bar.props || {};
+      if (hide && !powerParked) {
+        const owner = uiParentOf(gameHud, power);
+        if (!owner) {
+          note("the power bar has no parent to be taken from — leaving the sidebar alone", "warn");
+          return;
+        }
+        owner.remove(power);
+        gameHud.add(power);
+        powerParked = { hud: gameHud, owner, box };
+      } else if (!hide && powerParked) {
+        gameHud.remove(power);
+        powerParked.owner.add(power);
+        powerParked = null;
+      }
+      // Nothing is written back unless this feature is the reason it moved.
+      // With the collapse off and never used, the client's own placement is
+      // left exactly as the client made it — which matters because the client
+      // hides the sidebar for reasons of its own (the game menu, a cinematic),
+      // and a `setVisible(true)` on every HUD build would quietly undo those.
+      owned = hide || sidebarShown === true;
+      if (owned) {
+        const powerWidth = (props.powerImg && props.powerImg.width) || 0;
+        power.setPosition(hide ? Math.max(0, gameHud.viewport.width - powerWidth) : props.x || 0, props.y || 0);
+        box.setVisible(!hide);
+        if (gameHud.sidebarButtonsContainer) gameHud.sidebarButtonsContainer.setVisible(!hide);
+        // The superweapon timers are not part of the sidebar and are not hidden
+        // — but they were placed against its left edge, so a collapse would
+        // leave them floating a sidebar's width from the screen edge, which is
+        // the one thing this feature exists to stop. Their `x` is the client's
+        // own, minus a gutter that is now nothing.
+        const timerBox = gameHud.superWeaponTimers;
+        const timers = timerBox && typeof timerBox.getUiObject === "function" ? timerBox.getUiObject() : null;
+        if (timers && timerBox.props) {
+          const own = timerBox.props;
+          timers.setPosition(
+            Math.max(0, gameHud.viewport.width - (hide ? 0 : gameHud.sidebarWidth || 0) - (own.width || 0)),
+            own.y || 0
+          );
+        }
+      }
+    } catch (e) {
+      note(`could not collapse the sidebar — ${e && e.message}`, "warn");
+      return;
+    }
+
+    if (sidebarShown === hide) return;
+    sidebarShown = hide;
+    if (!owned) return;
+    // The client's own path for "the viewport changed", which recomputes the
+    // world's scissor through the override above and the camera's pan limits
+    // with it. Skipped before the world view exists, which is the first HUD of a
+    // match: the client builds the HUD first and the world view second, reading
+    // `hud.sidebarWidth` on the way, so that one comes up right without being
+    // told.
+    const view = state.worldView;
+    if (view && typeof view.handleViewportChange === "function") {
+      try {
+        view.handleViewportChange(gameHud.viewport);
+      } catch (e) {
+        note(`the world view did not take the sidebar's width back — ${e && e.message}`, "warn");
+      }
+    }
+  }
+
+  /**
+   * The key: collapse the sidebar, or bring it back.
+   *
+   * Writes the preference before applying it, so a tab that dies between the two
+   * comes back to the sidebar the player last asked for rather than to the one
+   * they last saw.
+   */
+  function toggleSidebar(on) {
+    const want = on === undefined ? !sidebarPref() : !!on;
+    if (want !== sidebarWanted) {
+      sidebarWanted = want;
+      try {
+        localStorage.setItem(SIDEBAR_KEY, want ? "1" : "0");
+      } catch (e) {
+        note("could not remember whether the sidebar is collapsed", "warn");
+      }
+    }
+    if (!state.hud) {
+      note(`the sidebar will be ${want ? "collapsed" : "shown"} from the next match — there is none now`);
+      return;
+    }
+    applySidebar();
+    note(want ? "sidebar collapsed — the power bar only, at the right edge" : "sidebar back");
+  }
+
   // --- The queue overlay ----------------------------------------------------
 
   /**
@@ -6474,6 +10037,18 @@
   let queueSubscription = null;
 
   /**
+   * Where the last real press through `onPanelMouseDown` stopped.
+   *
+   * `dragReport()` predicts what a press *would* do; this is the record of one
+   * that happened. It is the half that says whether the press ever reached
+   * `begin` at all — every exit of the handler below names itself here, so a
+   * player who pressed and saw nothing move can read which step swallowed it
+   * rather than guessing. Never read by the handler, and holds only the latest
+   * press: a log would grow for the life of a match.
+   */
+  let lastPanelPress = null;
+
+  /**
    * Start a drag of a floating panel when the game has the mouse.
    *
    * The panel's own `mousedown` cannot fire in that state — the press goes to
@@ -6481,23 +10056,211 @@
    * can see. Unlocked, this does nothing and the panel's own handler runs.
    */
   function onPanelMouseDown(e) {
-    if (!mouseCaptured()) return;
+    // Records the exit, changes no decision. Each `stopped` line names the step
+    // its own `return` is; the strings are what `__cdc.drag().lastPress` prints.
+    const stopped = (step, extra) => {
+      lastPanelPress = Object.assign({ when: Date.now(), step }, extra || null);
+    };
+    // The radar's canvas gets first refusal, and gets it ahead of the lock
+    // check: it is the one panel whose presses mean something with a free mouse
+    // too, because a press on it is aimed at a tile rather than at the box
+    // around it.
+    if (radarPress(e)) {
+      stopped("the radar's own canvas claimed the press, before the lock check");
+      return;
+    }
+    if (!mouseCaptured()) {
+      stopped("the mouse is free — the panel's own mousedown handles this press");
+      return;
+    }
     const target = underCursor();
-    if (!target) return;
+    if (!target) {
+      stopped("the hit test found no element at the cursor");
+      return;
+    }
     // Both floating panels through one handler: the hit test is the same
     // `elementFromPoint` either way, and a listener per panel would be a second
     // unsubscribe to keep right for no second behaviour.
     for (const panel of [
-      { el: queuesEl, drag: queuesDrag },
-      { el: netEl, drag: netDrag },
-      { el: memPanel && memPanel.el(), drag: memPanel && memPanel.drag() },
+      { name: "queues", el: queuesEl, drag: queuesDrag },
+      { name: "net", el: netEl, drag: netDrag },
+      { name: "memory", el: memPanel && memPanel.el(), drag: memPanel && memPanel.drag() },
+      { name: "radar", el: radarEl, drag: radarDrag },
     ]) {
       if (!panel.el || !panel.drag || !panel.el.contains(target)) continue;
       e.preventDefault();
       e.stopPropagation();
-      panel.drag.begin(cursorPoint());
+      // Recorded before the call, so a `begin` that throws still leaves the
+      // report saying the press got this far.
+      stopped("begin was called", { panel: panel.name, under: target.className || target.tagName });
+      panel.drag.begin(cursorPoint(), target);
       return;
     }
+    stopped("no panel of ours contains the cursor", { under: target.className || target.tagName });
+  }
+
+  /**
+   * What a press right here would do to a floating panel, and why.
+   *
+   * The drag under a pointer lock is a chain of five answers, and a report that
+   * it "does not work" cannot say which one is wrong. Every link was cleared in
+   * turn by reading -- `mouseCaptured` (the client uses the real Pointer Lock
+   * API), `radarPress` (it claims only the canvas and the dials), the grip's hit
+   * test, `cursorPoint` -- and `scripts/drive-drag.mjs` then drove the whole
+   * path in a real browser under a faked lock and passed every assertion. So the
+   * wiring is sound and the fault is in something only a running match has,
+   * which is exactly the case a console line can settle and a check cannot.
+   *
+   * Hover the thing you would grab, then read this. It repeats the decision
+   * `onPanelMouseDown` makes, in the same order, without acting on it.
+   */
+  function dragReport() {
+    // First, and before anything else reads a pointer: `cursorPoint` is what
+    // records which branch ran, so every field below describes the same call the
+    // drag itself would have made.
+    const at = cursorPoint();
+    const from = cursorSource();
+    const target = at ? document.elementFromPoint(at.x, at.y) : null;
+    const named = (el) => (el ? el.className || el.tagName : "nothing");
+    const point = (p) => (p && typeof p.x === "number" ? Math.round(p.x) + "," + Math.round(p.y) : "none");
+    const ui = state.pointerUi;
+
+    // The client's raw answer AND the viewport point it converts to. One without
+    // the other cannot say which of the two is wrong, and the conversion is the
+    // suspect: read this twice with a mouse move in between and whichever of
+    // clientAt / integratedAt / domAt moved is the live one.
+    let raw = null;
+    let rawThrew = null;
+    let converted = null;
+    let canvasSpace = "none — no client pointer was captured";
+    if (ui && typeof ui.getPosition === "function") {
+      try {
+        raw = ui.getPosition();
+      } catch (e) {
+        rawThrew = (e && e.message) || String(e);
+      }
+    }
+    if (ui && ui.canvas) {
+      const rect = ui.canvas.getBoundingClientRect();
+      // The one fact about a live match that reading this repo cannot supply: is
+      // the client's canvas device-backed? `chordScreenBox` divides the client's
+      // position by `attributePx / cssPx`, so the ratio is the whole of what the
+      // conversion does — at 1 it is the identity, and only above 1 does a point
+      // land short of the cursor.
+      //
+      // **Expect 1, and read 1 as "look downstream".** The shipped client sizes
+      // its canvas through `Renderer.setViewportSize` →
+      // `THREE.WebGLRenderer.setSize(w, h)`, whose pixel ratio defaults to 1, and
+      // neither `setPixelRatio` nor `devicePixelRatio` occurs anywhere in
+      // `dist/ra2web.min.js?v=0.83.3`, the lib patches or the stylesheet. The hit
+      // test is also known good live: `onOverlayMouseMove` draws the cursor at
+      // `cursorPoint()` and only over one of our boxes, through this same
+      // conversion, and it draws on the cursor in a real match — which a halved
+      // point could not do. So a ratio of 1 here is not the reason a panel refuses
+      // to move; that cause is downstream and still open.
+      //
+      // A ratio above 1 would be news: a client version that has started backing
+      // its canvas at the device ratio, and then a real defect. Both numbers are
+      // reported with the ratio so the answer needs no second reading.
+      canvasSpace = {
+        attributePx: ui.canvas.width + `x` + ui.canvas.height,
+        cssPx: Math.round(rect.width) + `x` + Math.round(rect.height),
+        ratio: rect.width ? Number((ui.canvas.width / rect.width).toFixed(3)) : "the canvas has an empty rect",
+        devicePixelRatio: window.devicePixelRatio,
+      };
+      if (raw) {
+        const box = CHORD_TABLES.chordScreenBox(
+          { x: raw.x, y: raw.y, width: 0, height: 0 },
+          rect,
+          { width: ui.canvas.width, height: ui.canvas.height }
+        );
+        converted = { x: box.left, y: box.top };
+      }
+    } else if (ui) {
+      canvasSpace = "none — the captured client pointer has no canvas";
+    }
+
+    const panels = [
+      { name: "queues", el: queuesEl, drag: queuesDrag },
+      { name: "net", el: netEl, drag: netDrag },
+      { name: "memory", el: memPanel && memPanel.el(), drag: memPanel && memPanel.drag() },
+      { name: "radar", el: radarEl, drag: radarDrag },
+    ];
+    const hit = panels.find((p) => p.el && p.el.contains(target));
+    return {
+      captured: mouseCaptured(),
+      // Which `return` inside cursorPoint() actually fired, taken from
+      // cursorPoint itself rather than re-derived here — `state.pointerUi` being
+      // non-null was what this said until now, and a captured-but-unusable
+      // pointer made that a lie in the one case worth reporting.
+      branch: from.branch,
+      source: from.source,
+      why: from.why,
+      at: at ? Math.round(at.x) + "," + Math.round(at.y) : "unknown",
+      // The three candidate positions, side by side. Read this twice with the
+      // mouse moved in between: the one that changed is the one that is live.
+      clientAt: rawThrew
+        ? `getPosition() threw — ${rawThrew}`
+        : raw
+          ? point(raw) + " in the client, which converts to " + point(converted) + " in the viewport"
+          : ui
+            ? "none — the client's pointer gave no position"
+            : "none — no client pointer was captured",
+      integratedAt: point(state.lockedPointer),
+      domAt: point(state.pointer),
+      // Two separate facts, because they fail separately: the patch may never
+      // have installed, or it may have installed after the client had already
+      // made its single Gui.init() call and so never captured anything.
+      pointerHook: {
+        installed: !!state.hooks.pointer,
+        captured: state.pointerUi !== null,
+      },
+      canvasSpace,
+      under: named(target),
+      panel: hit ? hit.name : "none",
+      draggable: hit ? !!hit.drag : false,
+      // The record of a press that HAPPENED, next to `wouldDo`'s prediction about
+      // one that has not. The hit test is known to land on the cursor in a match
+      // — the drawn cursor rides the same `cursorPoint()` — so the unexplained
+      // half of "the panel will not move" is downstream, and these two fields are
+      // where it shows. `lastPress` names the step the handler stopped at; `drags`
+      // is each panel's own counters, so "begin was never reached" and "begin
+      // armed the box and onMove did nothing" read differently. Both are copied
+      // out of state the drag writes as it runs — reading them presses nothing.
+      lastPress: lastPanelPress
+        ? {
+            step: lastPanelPress.step,
+            panel: lastPanelPress.panel || "none — the press stopped before a panel was named",
+            under: lastPanelPress.under || "not read at that step",
+            msAgo: Date.now() - lastPanelPress.when,
+          }
+        : "none — no mousedown has reached onPanelMouseDown since this page loaded",
+      drags: panels.reduce((all, p) => {
+        if (p.drag && typeof p.drag.report === "function") all[p.name] = p.drag.report();
+        return all;
+      }, {}),
+      // The verdict, in the order onPanelMouseDown reaches it.
+      wouldDo: (() => {
+        if (!at) return "nothing — there is no cursor position to act on";
+        // Asked of the DOM, never of radarChromePress: that one ACTS -- it
+        // toggles the drawer and calls preventDefault on the event it is
+        // handed. A report with a side effect is not a report.
+        if (target && target.closest && (target.closest(".cdc-dial") || target.closest(".cdc-radar-dials-toggle"))) {
+          return "press a dial — the drawer claims this point before any drag";
+        }
+        if (!mouseCaptured()) return "nothing here — the panel's own mousedown handles a free mouse";
+        if (!target) return "nothing — the hit test found no element at that point";
+        if (!hit) return "nothing — that point is not inside a panel that drags";
+        if (!hit.drag) return "nothing — " + hit.name + " has no drag attached";
+        return hit.name + ": " + (hit.el === radarEl && radarGripHas(target) ? "resize" : "move");
+      })(),
+    };
+  }
+
+  /** Is this element the radar's resize grip, or inside it? */
+  function radarGripHas(target) {
+    const grip = radarEl ? radarEl.querySelector(".cdc-radar-grip") : null;
+    return !!(grip && target && (target === grip || grip.contains(target)));
   }
 
   function toggleQueues(force) {
@@ -6923,6 +10686,641 @@
       // expected rather than wrong, and the next match tries again.
       note(`could not read the build roster (${e && e.message})`, "warn");
     }
+  }
+
+  // --- The taunt overlay ----------------------------------------------------
+
+  /**
+   * The eight taunts on the same block of keys the build grid uses.
+   *
+   * Why an overlay at all, for a feature the client already has keys for: those
+   * keys are **F5 to F12** (the shipped `[Hotkey]` table binds `Taunt_1`..`8` to
+   * 116..123), and a browser keeps the top of that range for itself — F11 is
+   * fullscreen and F12 is devtools, neither cancellable from a page. So two of
+   * the eight are unreachable on a stock install and the rest are a hand off the
+   * keyboard. This puts them under the left hand and, because that is the same
+   * fix the client's own Keyboard options offer, also rebinds them **in the
+   * client** rather than shadowing them from outside.
+   *
+   * What it draws over is `state.combatant.tauntHandler` — the object
+   * `CombatantUi` builds per match and hands every taunt command to. Three facts
+   * come off it that a player otherwise has to guess: whether the connection is
+   * open at all (`sendTaunt` returns in silence when it is not), how much of the
+   * five-second cooldown is left, and — through `Engine.taunts` — whether the
+   * sound this slot would play is even in the client's file system.
+   */
+
+  /** The layout in force: slot -> taunt number, always GRID_KEYS.length long. */
+  function tauntRows() {
+    return CHORD_TABLES ? CHORD_TABLES.tauntLayout(state.taunts) : [];
+  }
+
+  /** The match's taunt handler, or null between matches. */
+  function tauntHandler() {
+    const handler = state.combatant && state.combatant.tauntHandler;
+    return handler && typeof handler.sendTaunt === "function" ? handler : null;
+  }
+
+  /**
+   * What the handler says about sending right now.
+   *
+   * `open` is the server connection: `sendTaunt` checks `gservCon.isOpen()` and
+   * drops the taunt without a word when it is closed, which is every match
+   * against the built-in AI. `cool` is what is left of the five seconds
+   * `checkAndUpdateLastTauntTime` enforces on the sender's side — read off the
+   * handler rather than counted here, so a taunt sent while the overlay was
+   * shut is counted too.
+   */
+  function tauntSendState() {
+    const handler = tauntHandler();
+    if (!handler) return { handler: null, open: false, cool: 0 };
+    let open = false;
+    try {
+      open = !!(handler.gservCon && handler.gservCon.isOpen());
+    } catch (e) {
+      note(`could not read the taunt connection (${e && e.message})`, "warn");
+    }
+    let cool = 0;
+    const name = handler.localPlayer && handler.localPlayer.name;
+    const last = name && handler.lastTauntTimeByPlayer && handler.lastTauntTimeByPlayer.get(name);
+    if (last) cool = Math.max(0, CHORD_TABLES.TAUNT_COOLDOWN - (Date.now() - last));
+    return { handler, open, cool };
+  }
+
+  /**
+   * The client's own key for a taunt, as a code, or 0 for one it has not bound.
+   *
+   * Off `state.clientHotkeys`, the copy the `addHotKey` hook keeps — the same
+   * table the conflict warnings read, and the same one a rebind here writes
+   * through. The client's table is keyed by code because that is the lookup a
+   * press needs; this is the one question that wants it the other way round.
+   */
+  function tauntBinding(n) {
+    const command = CHORD_TABLES.tauntCommand(n);
+    if (!command) return 0;
+    for (const [code, bound] of state.clientHotkeys) if (bound === command) return code;
+    return 0;
+  }
+
+  /**
+   * Which taunt sounds this player's country actually has.
+   *
+   * `Engine.taunts` is a `LazyAsyncResourceCollection` over the client's own
+   * `Taunts` directory, so `has` is a promise and this cannot be answered while
+   * drawing. Asked once per file per session and painted in when it lands: the
+   * files come out of the player's own RA2 import and do not appear mid-match.
+   *
+   * A country with no file is the ordinary case for an install whose import
+   * skipped the folder, and it is worth saying out loud — the taunt is still
+   * sent and every other player still hears their own copy, so the one person
+   * who hears nothing is the one who pressed the key.
+   */
+  const tauntFiles = new Map(); // file name -> true | false | null (asked, unanswered)
+
+  function syncTauntFiles() {
+    const country = playerCountry();
+    const { Engine } = state.modules;
+    if (!country || !Engine || !Engine.taunts) return;
+    for (let n = 1; n <= CHORD_TABLES.TAUNT_COUNT; n++) {
+      const file = CHORD_TABLES.tauntFileName(country, n);
+      if (!file || tauntFiles.has(file)) continue;
+      tauntFiles.set(file, null);
+      Promise.resolve(Engine.taunts.has(file))
+        .then((has) => {
+          tauntFiles.set(file, !!has);
+          paintTaunts();
+        })
+        .catch((e) => {
+          // Deleted rather than left as "asked": a lookup that threw is not an
+          // answer, and the next open should ask again.
+          tauntFiles.delete(file);
+          note(`could not look up ${file} (${e && e.message})`, "warn");
+        });
+    }
+  }
+
+  /**
+   * The country's flag, as the client's own picture, or "" for an install that
+   * has not got one.
+   *
+   * `gui/component/Image` is the path this copies: a `.pcx` out of the VFS
+   * through `PcxFile#toDataUrl`, memoised in `ImageContext.imageUrlCache`. The
+   * cache is asked first because it usually answers — the loading screen draws
+   * a `CountryIcon` for every player in the match, so this match's flags are
+   * already decoded by the time an overlay can be opened — and the CDN branch
+   * is the client's too: an install served from the CDN has no mix files in the
+   * VFS at all and the same asset sits beside the origin as a `.png`.
+   */
+  const flagUrls = new Map();
+
+  function countryFlagUrl(country) {
+    const faction = country && FACTIONS[country];
+    const file = faction && faction.flag;
+    if (!file) return "";
+    if (flagUrls.has(file)) return flagUrls.get(file);
+    const { ImageContext, PcxFile, Engine } = state.modules;
+    const vfs = (ImageContext && ImageContext.vfs) || (Engine && Engine.vfs);
+    // Nothing to ask yet. Not cached, because "the modules are not in" is a
+    // state that ends, unlike an install without the file.
+    if (!ImageContext && !vfs) return "";
+    let url = "";
+    try {
+      const cached = ImageContext && ImageContext.imageUrlCache && ImageContext.imageUrlCache.get(file);
+      if (cached) url = cached;
+      else if (vfs && PcxFile && vfs.fileExists(file)) url = new PcxFile(vfs.openFile(file)).toDataUrl();
+      else if (ImageContext && ImageContext.cdnBaseUrl) {
+        url = ImageContext.cdnBaseUrl + file.slice(0, file.lastIndexOf(".")) + ".png";
+      }
+    } catch (e) {
+      note(`could not read the ${country} flag (${e && e.message})`, "warn");
+    }
+    // A miss is cached too: a flag this install does not hold will not appear
+    // in it, and without this the miss costs a VFS walk on every repaint.
+    flagUrls.set(file, url);
+    return url;
+  }
+
+  /**
+   * The strip over the grid: whose taunts these are.
+   *
+   * It is there because the words on the tiles are only true for one country —
+   * every country has its own eight, and the same key says something else in
+   * the next match. Rebuilt only when the country changes rather than on every
+   * repaint: an `<img>` with a data URL in it re-decodes when its src is set,
+   * and four times a second is a flicker.
+   */
+  let tauntCountryShown = null;
+
+  function paintTauntCountry() {
+    const el = tauntEl && tauntEl.querySelector(".cdc-taunt-country");
+    if (!el) return;
+    const country = playerCountry();
+    if (country === tauntCountryShown) return;
+    tauntCountryShown = country;
+    el.textContent = "";
+    el.classList.toggle("cdc-taunt-nocountry", !country);
+    if (!country) {
+      // Between matches there is no country and therefore no words. The tiles
+      // fall back to what each taunt is *for*, and this says why.
+      el.textContent = "no country yet — the tiles say what each key is for";
+      return;
+    }
+    const url = countryFlagUrl(country);
+    if (url) {
+      const flag = document.createElement("img");
+      flag.className = "cdc-taunt-flag";
+      flag.src = url;
+      flag.alt = "";
+      el.append(flag);
+    }
+    const name = document.createElement("span");
+    name.className = "cdc-taunt-country-name";
+    const faction = FACTIONS[country];
+    name.textContent = (faction && faction.label) || country;
+    el.append(name);
+  }
+
+  let tauntEl = null;
+  let tauntTimer = 0;
+
+  function toggleTaunts(force) {
+    const want = force === undefined ? !state.taunt : !!force;
+    if (want === !!state.taunt) return want;
+    if (want) {
+      // The two overlays share a layer and spend the same block of keys, so one
+      // opening closes the other rather than stacking a second box on it.
+      closeChord();
+      state.taunt = { listening: -1 };
+      syncTauntFiles();
+    } else {
+      state.taunt = null;
+    }
+    renderTaunts();
+    return want;
+  }
+
+  function closeTaunts() {
+    if (!state.taunt) return;
+    state.taunt = null;
+    renderTaunts();
+  }
+
+  /** The line under the title: what the keys and the mouse do here. */
+  function tauntHint() {
+    if (state.taunt && state.taunt.listening >= 0) {
+      return "press the key this taunt should have in the game — Esc cancels";
+    }
+    const at = tauntSendState();
+    if (!at.handler) return "no match — nothing to taunt in";
+    if (!at.open) return "not connected — a taunt would go nowhere";
+    if (at.cool > 0) return `cooling down — ${(at.cool / 1000).toFixed(1)}s · Esc closes`;
+    return "a key sends it · click a game key to rebind it · Esc closes";
+  }
+
+  function renderTaunts() {
+    if (!state.taunt) {
+      if (tauntEl) tauntEl.remove();
+      tauntEl = null;
+      window.removeEventListener("mousedown", onTauntMouseDown, true);
+      window.removeEventListener("contextmenu", onOverlayContextMenu, true);
+      syncOverlayMouse();
+      syncTauntTimer();
+      return;
+    }
+
+    if (tauntEl) tauntEl.remove();
+    tauntEl = document.createElement("div");
+    tauntEl.className = "cdc-chord cdc-taunt";
+
+    const head = document.createElement("div");
+    head.className = "cdc-chord-head";
+    head.textContent = "Taunts";
+    const hint = document.createElement("span");
+    hint.className = "cdc-chord-hint";
+    hint.textContent = tauntHint();
+    head.append(hint);
+    tauntEl.append(head);
+
+    // Whose taunts these are. Filled by paintTauntCountry, which owns it
+    // because the country can still be resolving when the overlay opens.
+    const country = document.createElement("div");
+    country.className = "cdc-taunt-country";
+    tauntEl.append(country);
+    tauntCountryShown = null;
+
+    const rows = tauntRows();
+    const grid = document.createElement("div");
+    grid.className = "cdc-chord-grid";
+    grid.style.setProperty("--cols", String(GRID_COLS));
+    const height = CHORD_TABLES.chordGridRows(rows.map(Boolean), GRID_COLS);
+    rows.slice(0, height * GRID_COLS).forEach((n, slot) => {
+      // An empty slot keeps its cell, for the reason the build grid's does: the
+      // geometry is the keyboard's, and a hole that closed up would move every
+      // key after it.
+      if (!n) {
+        const gap = document.createElement("i");
+        gap.className = "cdc-chord-gap";
+        grid.append(gap);
+        return;
+      }
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "cdc-chord-slot cdc-taunt-slot";
+      tile.dataset.slot = String(slot);
+      tile.dataset.taunt = String(n);
+
+      const key = document.createElement("i");
+      key.className = "cdc-chord-key";
+      key.textContent = keyLabelFor(slot);
+
+      // The taunt's own number, beside the key rather than across the tile from
+      // it. It is the only name the options page's slot editor has for a taunt,
+      // so it is the one thing that joins the two screens — the words are the
+      // country's, and the editor has no country.
+      const num = document.createElement("i");
+      num.className = "cdc-taunt-num";
+      num.textContent = String(n);
+
+      // The two of them in a rail down the left, which is the whole of the
+      // 1.15.0 reshape: as corner badges they cost the tile an empty band
+      // across its top to clear them, and in a column they cost the width they
+      // occupy. The options page draws the same rail.
+      const rail = document.createElement("i");
+      rail.className = "cdc-taunt-rail";
+      rail.append(key, num);
+
+      // What it says. Left empty here and filled by paintTaunts, because the
+      // words are the country's and the country can arrive after the open.
+      const label = document.createElement("span");
+      label.className = "cdc-chord-name";
+      // The box that holds their space, and the box the hover reveal positions
+      // against — so the reveal needs no number for where the words start.
+      const words = document.createElement("span");
+      words.className = "cdc-taunt-words";
+      words.append(label);
+
+      // The client's own key for this taunt, and the control that changes it.
+      // One element rather than a label and a button apart: the fact and the
+      // way to change it are the same thing, and this overlay is the only
+      // surface in the extension that has the fact at all.
+      const bind = document.createElement("i");
+      bind.className = "cdc-taunt-bind";
+
+      // The world takes a mousedown as an order, so the tile swallows its own
+      // before the client sees it — the same guard the grid's tiles carry.
+      tile.addEventListener("mousedown", (e) => e.stopPropagation(), true);
+      const body = document.createElement("span");
+      body.className = "cdc-taunt-body";
+      body.append(words, bind);
+      tile.append(rail, body);
+      grid.append(tile);
+    });
+    tauntEl.append(grid);
+
+    if (!height) {
+      const none = document.createElement("div");
+      none.className = "cdc-chord-none";
+      none.textContent = "no taunt is on a key — the options page puts them back";
+      tauntEl.append(none);
+    }
+
+    chordLayer().append(tauntEl);
+    placeAtPointer(tauntEl);
+    paintTaunts();
+    window.addEventListener("mousedown", onTauntMouseDown, true);
+    // The same swallow the grid does, for the same reason: a right click over a
+    // match is an order, and the browser's menu on top of it is nobody's
+    // intention.
+    window.addEventListener("contextmenu", onOverlayContextMenu, true);
+    syncOverlayMouse();
+    syncTauntTimer();
+  }
+
+  /**
+   * The half of a tile that moves: the game key, the cooldown, and whether the
+   * sound is there.
+   *
+   * Split from `renderTaunts` for the reason `paintChordQueues` is: a tile that
+   * rebuilt its own children four times a second could not be hovered or
+   * clicked, and three of these facts change under an open overlay.
+   */
+  function paintTaunts() {
+    if (!tauntEl) return;
+    const hintEl = tauntEl.querySelector(".cdc-chord-hint");
+    if (hintEl) hintEl.textContent = tauntHint();
+    const at = tauntSendState();
+    const country = playerCountry();
+    paintTauntCountry();
+    const listening = state.taunt ? state.taunt.listening : -1;
+    // Names whose words changed this pass, measured together at the end.
+    const measure = [];
+    for (const tile of tauntEl.querySelectorAll(".cdc-taunt-slot")) {
+      const slot = Number(tile.dataset.slot);
+      const n = Number(tile.dataset.taunt);
+      const bind = tile.querySelector(".cdc-taunt-bind");
+      // The words this country says, or — between matches, and for a country
+      // the table has no lines for — what the taunt is for. The fallback is
+      // marked, because a role is not a quote and must not read as one.
+      const line = CHORD_TABLES.tauntLine(country, n);
+      const role = CHORD_TABLES.tauntRole(n);
+      const nameEl = tile.querySelector(".cdc-chord-name");
+      const words = line || role;
+      if (nameEl.textContent !== words) {
+        nameEl.textContent = words;
+        nameEl.classList.toggle("cdc-taunt-role", !line);
+        measure.push(nameEl);
+      }
+      const code = tauntBinding(n);
+      const label = code ? CHORD_TABLES.clientKeyLabel(code) : "no game key";
+      bind.textContent = slot === listening ? "press a key…" : label;
+      bind.classList.toggle("listening", slot === listening);
+      bind.classList.toggle("unbound", !code);
+      // Nothing to play: the taunt is still sent and every other player hears
+      // their own copy of it, so this dims the tile rather than disabling it.
+      const file = CHORD_TABLES.tauntFileName(country, n);
+      const silent = !!file && tauntFiles.get(file) === false;
+      tile.classList.toggle("cdc-chord-off", silent || !at.open || at.cool > 0);
+      tile.classList.toggle("cdc-taunt-silent", silent);
+      tile.title =
+        `Taunt ${n} (${role}) — ${keyLabelFor(slot)} sends it` +
+        (code ? `, ${label} in the game` : ", no key in the game") +
+        (line ? `\n"${line}"` : "") +
+        (silent ? ` · ${file} is not in the client's Taunts folder, so you will not hear it` : "");
+    }
+    // Whether the three-line clamp bit, which is whether hovering the tile has
+    // anything left to show. Read after every write above rather than beside
+    // each one: `scrollHeight` forces a layout, this runs four times a second,
+    // and one read per tile interleaved with the writes would force eight.
+    for (const nameEl of measure) {
+      nameEl.classList.toggle("cdc-taunt-clipped", nameEl.scrollHeight > nameEl.clientHeight + 1);
+    }
+  }
+
+  /**
+   * A quarter-second repaint while the overlay is up.
+   *
+   * The cooldown is the only thing here with no event behind it — the handler
+   * writes a timestamp and dispatches nothing — and 250 ms is what makes a
+   * counted-down tenth of a second look counted rather than stepped.
+   */
+  function syncTauntTimer() {
+    const want = !!tauntEl;
+    if (want === !!tauntTimer) return;
+    if (!want) {
+      clearInterval(tauntTimer);
+      tauntTimer = 0;
+      return;
+    }
+    tauntTimer = setInterval(() => {
+      if (!tauntEl) {
+        syncTauntTimer();
+        return;
+      }
+      paintTaunts();
+    }, 250);
+  }
+
+  /**
+   * Send one, through the client's own command.
+   *
+   * `runCommand` rather than `tauntHandler.sendTaunt` — the command is what the
+   * client's own key runs, so the trigger mode, the pause while a menu is up
+   * and every other rule around it stay the client's. The overlay closes on the
+   * way out: a taunt is one press with a five-second cooldown behind it, so
+   * there is never a second thing to do with an open one.
+   */
+  function sendTauntSlot(slot) {
+    const n = tauntRows()[slot];
+    if (!n) return;
+    const at = tauntSendState();
+    if (!at.handler) {
+      buildNote("no match — the taunt went nowhere");
+      closeTaunts();
+      return;
+    }
+    if (!at.open) {
+      buildNote("not connected — a taunt is only ever sent to other players");
+      return;
+    }
+    if (at.cool > 0) {
+      buildNote(`taunts are on a cooldown — ${(at.cool / 1000).toFixed(1)}s left`);
+      return;
+    }
+    runCommand(CHORD_TABLES.tauntCommand(n));
+    closeTaunts();
+  }
+
+  /**
+   * Rebind one taunt **in the client**, from the next key pressed.
+   *
+   * `KeyBinds#changeHotKey` is the client's own Options → Keyboard call: it
+   * drops whatever code the command had and takes the new one. `save()` then
+   * writes the whole table to `keyboard.ini` in the client's file system, which
+   * is what makes the new key survive a reload — the same file the settings
+   * backup reads and writes.
+   *
+   * Two things the client's own screen does not say, and this does. `hotKeys`
+   * is keyed by code, so binding a taken code **displaces** the command that
+   * had it, in silence — that is how a stock install loses `HealthNav` to
+   * `PageUser` on `U`. And a key this extension consumes never reaches the
+   * client at all, so binding a taunt to one would produce a binding that is
+   * real, saved and dead. Both are reported; neither is refused, because a
+   * player may mean either.
+   */
+  function beginTauntRebind(slot) {
+    if (!state.taunt) return;
+    if (!state.keyBinds) {
+      buildNote("the client's key table has not been seen yet — start a match first");
+      return;
+    }
+    state.taunt.listening = state.taunt.listening === slot ? -1 : slot;
+    paintTaunts();
+  }
+
+  function applyTauntRebind(e) {
+    const slot = state.taunt ? state.taunt.listening : -1;
+    const n = slot >= 0 ? tauntRows()[slot] : 0;
+    const binds = state.keyBinds;
+    state.taunt.listening = -1;
+    if (!n || !binds) {
+      paintTaunts();
+      return;
+    }
+    const command = CHORD_TABLES.tauntCommand(n);
+    let code = 0;
+    try {
+      code = binds.getHotKeyCode(e);
+    } catch (err) {
+      note(`could not hash that key (${err && err.message})`, "warn");
+    }
+    // `getCommandType` refuses a `keyCode` above 255 before it even looks at
+    // the table, so a key the client could never match again is refused here
+    // rather than written into a table that would never answer it.
+    if (!code || e.keyCode > 255) {
+      buildNote("the game cannot store that key");
+      paintTaunts();
+      return;
+    }
+    const displaced = state.clientHotkeys.get(code);
+    const was = tauntBinding(n);
+    try {
+      binds.changeHotKey(command, code);
+    } catch (err) {
+      note(`the client refused the binding (${err && err.message})`, "warn");
+      buildNote("the game refused that key");
+      paintTaunts();
+      return;
+    }
+    if (was) state.clientHotkeys.delete(was);
+    state.clientHotkeys.set(code, command);
+    const label = CHORD_TABLES.clientKeyLabel(code);
+    const ours = ourKeyOn(e);
+    // Saved first and reported after, so the line the player reads is about a
+    // binding that is on disk rather than one that is about to be.
+    Promise.resolve()
+      .then(() => binds.save())
+      .then(() => {
+        buildNote(
+          `Taunt ${n} is now ${label}` +
+            (displaced && displaced !== command ? ` — ${displaced} lost that key` : "") +
+            (ours ? " — but the extension takes that key first" : "")
+        );
+      })
+      .catch((err) => {
+        note(`the new binding was not written to the client's file (${err && err.message})`, "warn");
+        buildNote(`Taunt ${n} is ${label} until the page reloads — the game would not save it`);
+      });
+    paintTaunts();
+  }
+
+  /**
+   * Is this press one the extension swallows before the client sees it?
+   *
+   * The fixed panel keys and the command bindings only: the build keys and the
+   * grid's slots live under a match and a chord, and naming them here would
+   * warn about a collision that exists only in a state the player is not in.
+   */
+  function ourKeyOn(e) {
+    const id = eventBindingId(e);
+    for (const name of Object.keys(ownKeys(state.keys))) {
+      const bound = state.keys[name];
+      if (bound && bindingId(bound) === id) return true;
+    }
+    return commandBindings().has(id);
+  }
+
+  /**
+   * A press while the overlay is up. Returns whether it was consumed.
+   *
+   * Everything is consumed while a rebind is listening — that is the whole of
+   * what "press a key" means, and a press that leaked through would both bind
+   * the taunt and do whatever else that key does.
+   */
+  const TAUNT_MODIFIER_CODES = [
+    "ControlLeft", "ControlRight", "AltLeft", "AltRight",
+    "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight",
+  ];
+
+  function tauntKey(e) {
+    if (!state.taunt) return false;
+    if (state.taunt.listening >= 0) {
+      // A modifier on its own is never a whole binding: the client would hash
+      // it into a code with no key in it, which no press can ever match.
+      if (TAUNT_MODIFIER_CODES.includes(e.code)) return true;
+      if (e.code === "Escape") {
+        state.taunt.listening = -1;
+        paintTaunts();
+        return true;
+      }
+      applyTauntRebind(e);
+      return true;
+    }
+    if (e.code === "Escape" || matchesHotkey(e, state.keys.taunts)) {
+      closeTaunts();
+      return true;
+    }
+    const slot = CHORD_TABLES.GRID_KEYS.indexOf(e.code);
+    // Bare presses only. A modified press on a slot key is not a slot key —
+    // Alt is the grid's cancel and Ctrl its "queue next", and an overlay that
+    // answered them here would be teaching one block of keys two sets of rules.
+    if (slot >= 0 && !e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+      if (!tauntRows()[slot]) {
+        buildNote(`nothing on ${keyLabelFor(slot)}`);
+        return true;
+      }
+      sendTauntSlot(slot);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * A press of the mouse while the overlay is up.
+   *
+   * The same two states the grid's handler deals with: under a pointer lock the
+   * event carries no usable coordinates and never reaches our elements, so the
+   * tile is found by hand at the cursor the client draws. The right button is
+   * the rebind — it is the button the grid uses for the other thing a tile can
+   * do, and there is no `click` for it to fall through to.
+   */
+  function onTauntMouseDown(e) {
+    if (!tauntEl) return;
+    const target = mouseCaptured() ? underCursor() : e.target;
+    const tile = target && target.closest ? target.closest(".cdc-taunt-slot") : null;
+    if (tile && tauntEl.contains(tile)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const slot = Number(tile.dataset.slot);
+      if (!Number.isInteger(slot)) return;
+      const onBind = e.button === 2 || !!(target.closest && target.closest(".cdc-taunt-bind"));
+      if (onBind) beginTauntRebind(slot);
+      else sendTauntSlot(slot);
+      return;
+    }
+    if (!mouseCaptured() && tauntEl.contains(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeTaunts();
   }
 
   // --- The net readout ------------------------------------------------------
@@ -7527,6 +11925,18 @@
       // the client — swallowing it here would be this handler eating its own
       // output.
       if (!e.isTrusted) return;
+      // **The taunt overlay is answered first, and answers everything.** It is
+      // ours, it is modal while a rebind is listening, and its slot keys are the
+      // same left-hand block the build grid spends — so a press reaching the
+      // routing below could open a grid under an overlay that was going to
+      // consume it. Above the route rather than inside it because that table is
+      // about which of the *client's* layers a press belongs to, and this
+      // overlay is not one of them.
+      if (state.taunt && tauntKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       // **Which of our own layers this press belongs to** — the table in
       // src/build-chords.js, where the precedence between them can be tested.
       // `none` is a Ctrl on a code the browser keeps with no lock held: left
@@ -7618,10 +12028,16 @@
         ? toggleHqFull
         : matchesHotkey(e, state.keys.queues)
         ? toggleQueues
+        : matchesHotkey(e, state.keys.taunts)
+        ? toggleTaunts
         : matchesHotkey(e, state.keys.net)
         ? toggleNet
         : matchesHotkey(e, state.keys.memory)
         ? toggleMemory
+        : matchesHotkey(e, state.keys.sidebar)
+        ? toggleSidebar
+        : matchesHotkey(e, state.keys.radar)
+        ? toggleRadar
         : e.code === "Escape" && state.hqFullVisible
         ? () => toggleHqFull(false)
         : null;
@@ -7739,6 +12155,14 @@
   window.addEventListener(
     "mousedown",
     (e) => {
+      // The beacon, ahead of everything: `ourButton` returns the two ordinary
+      // buttons on untouched, and this gesture is on one of them. It takes the
+      // press only when it has a tile to put a beacon on, so an Alt+right that
+      // finds nothing is still the client's ordinary right click.
+      if (worldPing(e)) {
+        mouseHeld = e.button;
+        return;
+      }
       if (!ourButton(e.button) || !e.isTrusted || isTyping(e.target)) return;
       const id = mouseBindingId(e);
 
@@ -7838,15 +12262,30 @@
   // on. Losing focus ends it.
   window.addEventListener("blur", chordHoldClear);
 
-  // Where a chord grid opens. Passive, and storing two numbers is all it does:
-  // this fires on every mouse move over a running match.
-  window.addEventListener(
-    "mousemove",
-    (e) => {
-      state.pointer = { x: e.clientX, y: e.clientY };
-    },
-    { passive: true, capture: true }
-  );
+  // Where a chord grid opens, and where a panel drag reads the cursor. Passive,
+  // and `trackPointer` stores two points and nothing else: this fires on every
+  // mouse move over a running match. Capture, so the position is already this
+  // move's by the time a drag's own listener runs.
+  window.addEventListener("mousemove", trackPointer, { passive: true, capture: true });
+
+  // A lock given up drops the integrated point, so the next one starts from
+  // where the cursor really is rather than from wherever the last one left it.
+  //
+  // Only on release, and the condition is the whole of it. `state.pointer` is
+  // the truth exactly while the mouse is free and frozen while it is not, so
+  // reseeding from it under a held lock writes back the very stale position
+  // `trackPointer` exists to replace. That is not hypothetical: Chromium fires
+  // this event again every time `requestPointerLock()` is called on the element
+  // that already holds the lock, which the client does on every click in a
+  // match — measured in scripts/drive-drag.mjs, where an unguarded reseed put
+  // the cursor back at the lock point after each press and the panel stopped
+  // moving again halfway through the run. Nothing is needed on acquisition:
+  // `trackPointer` holds the two points equal for as long as the mouse is free,
+  // so the integration is already seeded correctly when the lock takes.
+  document.addEventListener("pointerlockchange", () => {
+    if (mouseCaptured()) return;
+    state.lockedPointer = state.pointer ? { x: state.pointer.x, y: state.pointer.y } : null;
+  });
 
   // --- Wiring ---------------------------------------------------------------
 
@@ -7923,6 +12362,18 @@
             .join(",") || "none"
         : "n/a",
       mapCapturedFrom: state.captureSource || "nothing captured",
+      // Whether this install has taunt sounds at all — the one fact behind
+      // "nothing to play" on the settings page, answerable here without
+      // pressing anything. `rfsDir` is set by `Engine.initVfs`, so "not yet"
+      // and "not there" are the same answer until the client has loaded its
+      // game files, which `vfs` is what says.
+      tauntSounds: (() => {
+        const Engine = state.modules && state.modules.Engine;
+        if (!Engine) return "the Engine module did not load";
+        if (!Engine.vfs) return "n/a — this client has not loaded its game files yet";
+        if (Engine.taunts && Engine.taunts.rfsDir) return "yes";
+        return `no — nothing imported a "${(Engine.rfsSettings && Engine.rfsSettings.tauntsDir) || "Taunts"}" folder`;
+      })(),
       // Whether a run can render a theater this tab has not played.
       gameLoaderHeld: state.gameLoader ? "yes" : "no — play one match in this tab",
       previewRendered: state.map ? "yes" : "no",
@@ -7953,7 +12404,11 @@
     // Why a chord did nothing — which prefixes resolved, from whose table,
     // and whose layout is in force.
     chords: chordReport,
+    // Why a panel would not move. Hover the thing you would grab, then read
+    // this: it repeats onPanelMouseDown's decision without acting on it.
+    drag: dragReport,
     queues: toggleQueues,
+    taunts: toggleTaunts,
     net: toggleNet,
     memory: toggleMemory,
     // The samples behind the panel, for a report from a player whose tab keeps
@@ -7961,6 +12416,9 @@
     // reading the panel happens to be showing.
     memTrace: () => (memMeter ? { previous: memMeter.lastSession(), samples: memMeter.samples() } : null),
     overlay: toggleIngame,
+    // Our own radar, from our own render. Takes a force argument like the rest,
+    // so a check or a console can open it without toggling whatever it was.
+    radar: toggleRadar,
     resetLayout,
     state,
     FACTIONS,
@@ -8254,6 +12712,180 @@
       report.reload = true;
     }
     return report;
+  }
+
+  /**
+   * How long to wait for a client that is still starting.
+   *
+   * Longer than `SETTINGS_WAIT_MS`, and the difference is the point.
+   * `Engine.rfs` exists after `initRfs`, which runs before the game files are
+   * even chosen — that is early enough to read `keyboard.ini` and far too early
+   * to ask about taunts, because it is `initVfs` that points
+   * `Engine.taunts` at the folder, and `initVfs` runs at the end of
+   * `loadResources`. A tab opened for this request a second ago is at the
+   * splash screen; answering from there says "you have no taunts" about a
+   * client that has not looked yet.
+   */
+  const TAUNT_WAIT_MS = 120000;
+
+  /** Once the client has a VFS, the rest of the answer is milliseconds away. */
+  const TAUNT_SETTLE_MS = 8000;
+
+  /**
+   * The client's `Taunts` directory, once the client has one to give.
+   *
+   * `Engine.taunts.rfsDir` first, because that is the object the client's own
+   * playback reads and it is set by `initVfs` — asking the file system again
+   * would be a second opinion about the same folder. The direct lookup is the
+   * fallback for a client that has an `rfs` but never reached `initVfs`, which
+   * is every CDN install.
+   *
+   * @returns {Promise<{dir: object|null, booted: boolean, name: string}>}
+   */
+  async function tauntsDirectory(Engine) {
+    const name = (Engine.rfsSettings && Engine.rfsSettings.tauntsDir) || "Taunts";
+    let deadline = Date.now() + TAUNT_WAIT_MS;
+    let booted = false;
+    for (;;) {
+      const dir =
+        (Engine.taunts && Engine.taunts.rfsDir) ||
+        (Engine.rfs && (await Engine.rfs.findDirectory(name))) ||
+        null;
+      if (dir) return { dir, booted: true, name };
+      // `initVfs` sets `vfs` first and points the collection at the folder two
+      // awaits later, so this is "nearly there" rather than "there" — hence a
+      // settle rather than an answer.
+      if (!booted && Engine.vfs) {
+        booted = true;
+        deadline = Math.min(deadline, Date.now() + TAUNT_SETTLE_MS);
+      }
+      if (Date.now() > deadline) return { dir: null, booted, name };
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+
+  /** A few entry names, for a message that has to explain an absence. */
+  async function someEntries(dir, limit) {
+    if (!dir || typeof dir.listEntries !== "function") return null;
+    try {
+      const all = await dir.listEntries();
+      return { count: all.length, sample: all.slice(0, limit) };
+    } catch (e) {
+      note(`could not list ${(dir.name || "a directory")} (${e && e.message})`, "warn");
+      return null;
+    }
+  }
+
+  /**
+   * One taunt's sound, as a data URL the options page can hand to an `<audio>`.
+   *
+   * Why it is a round trip at all: the taunt files are the player's own import
+   * and live in the client's **origin-private file system**, which is per
+   * origin. An extension page cannot open it — only a script running on
+   * `game.chronodivide.com` can — so the settings page asks and this answers,
+   * the same way the settings backup reads `keyboard.ini`.
+   *
+   * **The file on disk is not playable and has to be converted.** RA2 ships its
+   * taunts as **4-bit IMA ADPCM** inside a RIFF wrapper, and no browser decodes
+   * that: an `<audio>` handed one answers *"Failed to load because no supported
+   * source was found"*, which is exactly what a player reported against 1.17.3.
+   * The client never uses `<audio>` — `WavFile#getData` runs the same
+   * `wavefile` conversion (`bitDepth === "4"` → `fromIMAADPCM()` → `toBuffer()`)
+   * that its own mixer is fed from — so this borrows the client's own decoder
+   * and ships PCM. A file that is already PCM round-trips through the same call
+   * unharmed, so there is nothing to branch on.
+   *
+   * `FileReader` does the base64 rather than a hand-rolled `btoa` loop — the
+   * same encoding, without the chunking a 60 KB `String.fromCharCode.apply`
+   * needs to avoid blowing the stack.
+   *
+   * An absence answers `missing` rather than throwing, and carries **why**: a
+   * player told only "not found" cannot tell an install that never imported the
+   * folder from a client that had not finished starting, and those two want
+   * opposite things done about them.
+   */
+  async function readTauntWav(file) {
+    const sys = window.System || window.SystemJS;
+    if (!sys || typeof sys.import !== "function") throw new Error("SystemJS not on the page");
+    const { Engine } = await sys.import("engine/Engine");
+    // Still the settings job's wait, and still for its reason — this may be a
+    // tab opened a second ago — but only as the floor: tauntsDirectory waits
+    // for the part of the boot that actually decides the answer.
+    await clientRootDir();
+    const { dir, booted, name } = await tauntsDirectory(Engine);
+    if (!dir) {
+      const root = await someEntries(Engine.rfs && Engine.rfs.getRootDirectory(), 12);
+      return {
+        missing: true,
+        wav: "",
+        why:
+          `this client has no "${name}" folder` +
+          (booted ? "" : " and did not finish loading its game files in two minutes") +
+          (root
+            ? ` — its storage holds ${root.count} entr${root.count === 1 ? "y" : "ies"}` +
+              (root.count ? `: ${root.sample.join(", ")}` : "")
+            : ""),
+      };
+    }
+    if (!(await dir.containsEntry(file))) {
+      const held = await someEntries(dir, 8);
+      return {
+        missing: true,
+        wav: "",
+        why:
+          `"${name}" is there but holds no ${file}` +
+          (held
+            ? ` — ${held.count} file(s) in it` + (held.count ? `, e.g. ${held.sample.join(", ")}` : "")
+            : ""),
+      };
+    }
+    const raw = await dir.getRawFile(file);
+    const bytes = new Uint8Array(await raw.arrayBuffer());
+    let pcm = bytes;
+    try {
+      const { WavFile } = await sys.import("data/WavFile");
+      pcm = new WavFile(bytes).getData();
+    } catch (e) {
+      // Sent as it lies rather than not at all: a file this cannot convert may
+      // still be one the browser can play, and the alternative is silence with
+      // a message about a library.
+      note(`${file} would not convert (${e && e.message}) — sending it unchanged`, "warn");
+    }
+    // Retyped through a Blob: an OPFS file carries no MIME type, and a
+    // `data:;base64,` URL is not something every browser will play.
+    const blob = new Blob([pcm], { type: "audio/wav" });
+    const wav = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error || new Error("the file could not be read"));
+      reader.readAsDataURL(blob);
+    });
+    return { missing: false, wav, why: "" };
+  }
+
+  async function runTauntWavJob(file) {
+    const answer = {
+      source: "cdc-page",
+      type: "taunt-wav-result",
+      file,
+      ok: false,
+      missing: false,
+      wav: "",
+      why: "",
+      error: "",
+    };
+    try {
+      const read = await readTauntWav(String(file || ""));
+      answer.ok = true;
+      answer.missing = read.missing;
+      answer.wav = read.wav;
+      answer.why = read.why || "";
+      note(read.missing ? `${file}: ${read.why}` : `${file} sent to the options page`, read.missing ? "warn" : "info");
+    } catch (e) {
+      answer.error = (e && e.message) || String(e);
+      note(`could not read ${file} — ${answer.error}`, "warn");
+    }
+    window.postMessage(answer, "*");
   }
 
   let settingsBusy = false;

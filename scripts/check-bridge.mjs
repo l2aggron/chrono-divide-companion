@@ -24,7 +24,7 @@ const source = readFileSync(join(here, "..", "src", "bridge.js"), "utf8");
 
 const sent = [];
 const pending = []; // set() callbacks the test releases by hand
-let stored = { bulk: null, sim: null, maps: {}, renders: {}, guides: {}, keys: {}, prefs: {} };
+let stored = { bulk: null, sim: null, maps: {}, renders: {}, guides: {}, keys: {}, prefs: {}, appearance: { ore: "#112233" } };
 let onMessage = null;
 let onChanged = null;
 
@@ -438,6 +438,16 @@ check(
   "and the roster's stamp rather than the roster",
   !!config && config.rosterVersion === "0.83.3" && config.roster === undefined,
   JSON.stringify(config && { rosterVersion: config.rosterVersion, roster: config.roster })
+);
+// The appearance table travels whole, like spriteFix and unlike the stamps: the
+// renderer cannot fetch it at the moment it needs it, and the radar composites
+// against it live. Left out of the push, every dial silently does nothing in a
+// tab that is already open -- which is the failure mode the list below this
+// comment block exists to prevent.
+check(
+  "the config push carries the appearance table",
+  !!config && config.appearance !== undefined,
+  JSON.stringify(config && config.appearance)
 );
 
 // An edit in the options page has to reach a game tab that is already open —

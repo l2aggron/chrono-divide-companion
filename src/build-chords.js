@@ -1067,6 +1067,382 @@
     };
   }
 
+  // --- Countries -------------------------------------------------------------
+
+  /**
+   * Every country the client has, and the three things about one that nothing
+   * derives: what a player calls it, which side it plays, and the client's own
+   * flag asset for it.
+   *
+   * Here rather than in `src/companion.js`, where it lived until 1.14.0,
+   * because both surfaces need it now — the game tab draws the flag over the
+   * taunt grid, and the options page lets you read another country's taunts
+   * with no client in reach at all. A second copy of a table like this is a
+   * table that drifts.
+   *
+   * The keys are the rules' own `country.name`. The labels are the fallback for
+   * the client's localised `countryUiNames`, which a page outside the game
+   * cannot resolve. The flags are the complete map out of
+   * `gui/component/CountryIcon`. `side` is this table's own answer and not the
+   * client's `SideType`, which knows only GDI and Nod.
+   */
+  const COUNTRIES = {
+    Americans:    { label: "USA",           side: "Allied", flag: "usai.pcx" },
+    French:       { label: "France",        side: "Allied", flag: "frai.pcx" },
+    Germans:      { label: "Germany",       side: "Allied", flag: "geri.pcx" },
+    British:      { label: "Great Britain", side: "Allied", flag: "gbri.pcx" },
+    Alliance:     { label: "Korea",         side: "Allied", flag: "japi.pcx" },
+    Russians:     { label: "Russia",        side: "Soviet", flag: "rusi.pcx" },
+    Confederation:{ label: "Cuba",          side: "Soviet", flag: "lati.pcx" },
+    Africans:     { label: "Libya",         side: "Soviet", flag: "djbi.pcx" },
+    Arabs:        { label: "Iraq",          side: "Soviet", flag: "arbi.pcx" },
+    YuriCountry:  { label: "Yuri",          side: "Yuri",   flag: "yrii.pcx" },
+  };
+
+  /** What a player calls this country, or the raw name for one we do not know. */
+  function countryLabel(name) {
+    const country = COUNTRIES[name];
+    return (country && country.label) || name || "";
+  }
+
+  // --- Taunts ---------------------------------------------------------------
+
+  /**
+   * The eight taunts, and what the client does with them.
+   *
+   * `Taunt_1` ... `Taunt_8` are `KeyCommandType` entries like any other, each
+   * registered in `CombatantUi` as `() => this.tauntHandler?.sendTaunt(n)`. So
+   * a taunt is reached exactly the way the extension already reaches the
+   * client's other commands, and nothing new is hooked for it.
+   */
+  const TAUNT_COUNT = 8;
+
+  /**
+   * The two letters `TauntPlayback#getTauntFileName` puts in a file name, by
+   * the country name the rules use.
+   *
+   * The sound is per country, not per side: `tauru03.wav` is the Russian third
+   * taunt and there is no shared one. The files are the player's own — the
+   * importer copies them out of an RA2 install into the client's `Taunts`
+   * directory — so a slot can be bound, be legal, and still play nothing,
+   * which is the state this table exists to name.
+   */
+  const TAUNT_COUNTRIES = {
+    Americans: "am",
+    French: "fr",
+    Germans: "ge",
+    British: "br",
+    Russians: "ru",
+    Confederation: "cu",
+    Africans: "li",
+    Arabs: "ir",
+    Alliance: "ko",
+  };
+
+  /**
+   * What each taunt is *for*, in a phrase — the slot's role rather than its
+   * words.
+   *
+   * The words are per country (`TAUNT_LINES`); the role is not, and it is the
+   * only thing that can be said about a taunt with no match open and no
+   * country to read it from. That is the options page's whole state — the slot
+   * editor picks a key for a taunt long before a match exists — and the
+   * overlay's state between matches.
+   *
+   * Index 0 is taunt 1. See `TAUNT_LINES` for why that is F5 and not F12.
+   */
+  const TAUNT_ROLES = [
+    "out of money",
+    "attacking",
+    "asking for help",
+    "distract them",
+    "demand surrender",
+    "laughter",
+    "mocking a move",
+    "gloating",
+  ];
+
+  /**
+   * What each taunt actually says, per country, index 0 = taunt 1.
+   *
+   * The number is the client's: `sendTaunt(n)` plays `tau<cc><nn>.wav`, and
+   * RA2's own `[Hotkey]` table binds `Taunt_1`=116 through `Taunt_8`=123 —
+   * **F5 through F12**. So taunt 1 is the F5 line ("out of money") and taunt 8
+   * is the F12 gloat, which is the reverse of the order anyone reciting them
+   * reads them in. Recorded in [[cd-client-internals]].
+   *
+   * Source: the transcript of *"how to use all taunts"* (RED ALERT 2 MASTERY,
+   * youtube XmRPdVG-VRI), which plays all eight per country F12 down to F5
+   * with the key on screen; the split was taken off that caption frame by
+   * frame. The text is speech recognition corrected against the slot, so it is
+   * the words as heard rather than as shipped in any file — the client has no
+   * string table for taunts at all, only the sounds.
+   *
+   * F10 is a laugh with no words in every country. It differs in voice and in
+   * character per country and in nothing a table can hold, so it is named
+   * rather than transcribed.
+   *
+   * **Yuri is not here.** Its eight were in the same source and were carried
+   * for a while, on the reasoning that a country which never resolves costs
+   * nothing. It cost something: the settings page offered Yuri in its country
+   * picker, drew the eight lines, and then had no sound file to put a play
+   * button on — so the button vanished with nothing said (user, 2026-08-26).
+   * This client is Red Alert 2. `TAUNT_COUNTRIES` is its own list of who has
+   * taunt files, it holds nine, and that is now the list this table answers to.
+   */
+  const TAUNT_LINES = {
+    Americans: [
+      "Gosh darn it, I need more cash.",
+      "Yippee-ki-yay! I'm going in!",
+      "Anytime you want to get into the fight, just jump on in.",
+      "Try to distract him. I've got a plan.",
+      "If you give up now, I promise amnesty for you and your men.",
+      "(laughter)",
+      "That was a coward's tactic.",
+      "It's too late to surrender now.",
+    ],
+    French: [
+      "I have run out of money.",
+      "I think I may actually attack.",
+      "I'm getting slaughtered. I will have to surrender in moments.",
+      "Distract our enemy and I may try something.",
+      "Surrender! No, I don't mean I surrender, I mean you surrender!",
+      "(laughter)",
+      "Even a trained monkey could execute that maneuver.",
+      "Are you ready for me to crush you like the bug that you are?",
+    ],
+    Germans: [
+      "I need money immediately.",
+      "The time to attack is now!",
+      "Send help or you will soon be on your own!",
+      "Distract him. I have something clever in mind.",
+      "Surrender! You are all but beaten!",
+      "(laughter)",
+      "I will get you for that!",
+      "Ah, victory!",
+    ],
+    British: [
+      "I am running a little low on cash.",
+      "Attention, I am about to attack.",
+      "Your help would be greatly appreciated.",
+      "Try to get the enemy's attention. Me and the lads are going to try something.",
+      "Perhaps you should surrender and avoid further bloodshed.",
+      "(laughter)",
+      "That was hardly fair, now was it?",
+      "Heads up, old boy. Here I come.",
+    ],
+    Russians: [
+      "My resources are taxed to their limits.",
+      "I will soon crush our enemies.",
+      "Send me help, comrades, before it is too late!",
+      "Do something, you idiot! I have a plan!",
+      "If you surrender now, perhaps I will kill you quickly.",
+      "(laughter)",
+      "You are a fool to try such tactics.",
+      "There is no escape. There will be no mercy.",
+    ],
+    Confederation: [
+      "How can I fight without money?",
+      "I attack now!",
+      "Help me, you fool!",
+      "If you will do something, I might do something.",
+      "Surrender!",
+      "(laughter)",
+      "You cheap, sniveling little coward!",
+      "As if there was ever any doubt.",
+    ],
+    Africans: [
+      "I seem to be low on money.",
+      "The order is given. Attack!",
+      "Your assistance is required!",
+      "You must distract our enemies while I make a secret attack!",
+      "You are beaten! Surrender while you yet have buildings to sell!",
+      "(laughter)",
+      "What was that? You call that a tactic? You disgust me!",
+      "Look at the battle! Your doom is at hand!",
+    ],
+    Arabs: [
+      "As unbelievable as it may seem, I am out of money.",
+      "I am about to attack.",
+      "You must send help. Don't ask questions. Just do as you're told.",
+      "If you distract our enemy, I will execute my master plan.",
+      "It will be very boring for me, but perhaps you should surrender.",
+      "(laughter)",
+      "I will make you pay for that!",
+      "Is not my army beautiful? Behold as it destroys everything you own.",
+    ],
+    Alliance: [
+      "My resources are exhausted.",
+      "My men are ready. Soon we will attack.",
+      "My soldiers are being slaughtered! Send help!",
+      "Distract our enemy commander and I will destroy him.",
+      "Surrender now and you will live.",
+      "(laughter)",
+      "That was without honor.",
+      "You are doomed.",
+    ],
+  };
+
+  /**
+   * How long `TauntHandler` refuses a second taunt from the same player.
+   *
+   * `checkAndUpdateLastTauntTime`: 5000 ms, checked on the sender's side before
+   * anything is sent, so a press inside the window is dropped in silence. The
+   * overlay counts it down rather than letting a key look broken.
+   */
+  const TAUNT_COOLDOWN = 5000;
+
+  /**
+   * Which taunt sits on which key, as it ships.
+   *
+   * The same block as the build grid (`GRID_KEYS`), in the same reading order,
+   * for the same reason: it is the block under the left hand while the right
+   * one is on the mouse. Eight taunts over a fifteen-key block leaves the
+   * bottom row empty, which `chordGridRows` then drops.
+   */
+  const DEFAULT_TAUNTS = [
+    1, 2, 3, 4, 5,
+    6, 7, 8, null, null,
+    null, null, null, null, null,
+  ];
+
+  /**
+   * The layout in force, always exactly `GRID_KEYS.length` long.
+   *
+   * Overrides slot by slot over what ships, which is `chordLayout`'s shape and
+   * for `chordLayout`'s reason: a key nobody moved follows the default, and a
+   * corrected default reaches everyone who has not overruled that exact key.
+   * There is no side here — a taunt is the same taunt whatever country drew.
+   */
+  function tauntLayout(taunts) {
+    const overrides = taunts && !Array.isArray(taunts) && typeof taunts === "object" ? taunts : null;
+    return Array.from({ length: GRID_KEYS.length }, (_, i) => {
+      if (overrides && Object.prototype.hasOwnProperty.call(overrides, String(i))) {
+        return tauntNumber(overrides[String(i)]);
+      }
+      return DEFAULT_TAUNTS[i] || null;
+    });
+  }
+
+  /**
+   * The countries a taunt can be heard as, in the country table's order.
+   *
+   * `TAUNT_COUNTRIES` is the client's own map and it is the authority here: a
+   * country absent from it has no `tau<cc><nn>.wav` at all, so there is nothing
+   * to play and nothing to say about what it would sound like. Anything that
+   * offers a country to pick between reads this rather than `COUNTRIES`, which
+   * is every country the client can *draw* — a longer list, and the wrong one.
+   */
+  function tauntCountries() {
+    return Object.keys(COUNTRIES).filter((name) => TAUNT_COUNTRIES[name]);
+  }
+
+  /** A stored slot value as a taunt number, or null for anything else. */
+  function tauntNumber(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= TAUNT_COUNT ? n : null;
+  }
+
+  /**
+   * The override to store after putting `value` on `slot` — diffed against what
+   * ships, so putting a taunt back where it started stops overriding it.
+   */
+  function tauntOverride(taunts, slot, value) {
+    const next = chordPlace(tauntLayout(taunts), slot, tauntNumber(value));
+    const out = {};
+    for (let i = 0; i < GRID_KEYS.length; i++) {
+      if (next[i] !== (DEFAULT_TAUNTS[i] || null)) out[String(i)] = next[i] || null;
+    }
+    return out;
+  }
+
+  /** The client's command name for a taunt, or "" for a number it has none for. */
+  function tauntCommand(n) {
+    return tauntNumber(n) ? "Taunt_" + n : "";
+  }
+
+  /**
+   * The sound file a taunt plays for a country, or "" for a country with none.
+   *
+   * `TauntPlayback#getTauntFileName`: `tau` + the country's two letters + the
+   * number padded to two digits. Reproduced rather than called because the
+   * playback object belongs to a match and this answer is wanted while drawing.
+   */
+  function tauntFileName(country, n) {
+    const prefix = TAUNT_COUNTRIES[country];
+    const number = tauntNumber(n);
+    if (!prefix || !number) return "";
+    return "tau" + prefix + String(number).padStart(2, "0") + ".wav";
+  }
+
+  /**
+   * What taunt `n` is for, whoever is playing — "" for a number there is none.
+   */
+  function tauntRole(n) {
+    const number = tauntNumber(n);
+    return number ? TAUNT_ROLES[number - 1] : "";
+  }
+
+  /**
+   * What taunt `n` says for `country`, or "" for a country this table has no
+   * lines for — an observer, a country a mod added, or no match at all. The
+   * caller falls back to `tauntRole`, which always has an answer.
+   */
+  function tauntLine(country, n) {
+    const lines = TAUNT_LINES[country];
+    const number = tauntNumber(n);
+    return (lines && number && lines[number - 1]) || "";
+  }
+
+  /**
+   * A `KeyBinds` hotkey code as something a player can read.
+   *
+   * The inverse of `KeyBinds#getHotKeyCode`: the modifier bits back off the
+   * top, the `keyCode` out of the low byte, and the 2048 flag that marks a
+   * numpad arrow. `keyCode` is the deprecated field and it is the right one —
+   * it is what the client's own table is keyed by, so this is the only
+   * vocabulary in which a client binding can be named at all.
+   *
+   * A code this table has no name for is shown as its number rather than as
+   * nothing: an unnamed key is still a key the player pressed, and "key 187"
+   * beats a blank space that reads as unbound.
+   */
+  const KEYCODE_NAMES = {
+    8: "Backspace", 9: "Tab", 13: "Enter", 19: "Pause", 20: "CapsLock",
+    27: "Esc", 32: "Space", 33: "PgUp", 34: "PgDn", 35: "End", 36: "Home",
+    37: "Left", 38: "Up", 39: "Right", 40: "Down", 45: "Ins", 46: "Del",
+    106: "Num*", 107: "Num+", 109: "Num-", 110: "Num.", 111: "Num/",
+    144: "NumLock", 145: "ScrollLock",
+    186: ";", 187: "=", 188: ",", 189: "-", 190: ".", 191: "/", 192: "`",
+    219: "[", 220: "\\", 221: "]", 222: "'",
+  };
+
+  /** The numpad key behind each arrow code, from `KeyBinds`'s own remap table. */
+  const NUMPAD_ARROWS = { 40: 2, 37: 4, 39: 6, 38: 8 };
+
+  function clientKeyLabel(code) {
+    const value = Number(code);
+    if (!Number.isFinite(value) || value <= 0) return "";
+    const keyCode = value & 255;
+    const parts = [];
+    if (value & 4096) parts.push("Meta");
+    if (value & 1024) parts.push("Alt");
+    if (value & 512) parts.push("Ctrl");
+    if (value & 256) parts.push("Shift");
+    let name = KEYCODE_NAMES[keyCode] || "";
+    if (!name && keyCode >= 48 && keyCode <= 57) name = String(keyCode - 48);
+    if (!name && keyCode >= 65 && keyCode <= 90) name = String.fromCharCode(keyCode);
+    if (!name && keyCode >= 96 && keyCode <= 105) name = "Num" + (keyCode - 96);
+    if (!name && keyCode >= 112 && keyCode <= 123) name = "F" + (keyCode - 111);
+    // The numpad arrows the client rewrites on the way in (`getHotKeyCode` adds
+    // 2048 and swaps the code for the arrow's). Named as the numpad key that
+    // was actually pressed, since that is the key the player has to find again
+    // — the arrow it was rewritten into is on the other side of the keyboard.
+    if (value & 2048) name = "Num" + (NUMPAD_ARROWS[keyCode] || name || keyCode);
+    parts.push(name || "key " + keyCode);
+    return parts.join("+");
+  }
+
   window.__cdcBuildChords = {
     SECTIONS,
     GRID_KEYS,
@@ -1099,6 +1475,23 @@
     chordSlotShown,
     chordBadges,
     chordBadgeWeapons,
+    COUNTRIES,
+    countryLabel,
+    TAUNT_COUNT,
+    TAUNT_COUNTRIES,
+    TAUNT_ROLES,
+    TAUNT_LINES,
+    TAUNT_COOLDOWN,
+    DEFAULT_TAUNTS,
+    tauntLayout,
+    tauntNumber,
+    tauntOverride,
+    tauntCommand,
+    tauntFileName,
+    tauntCountries,
+    tauntRole,
+    tauntLine,
+    clientKeyLabel,
     chordScreenBox,
     chordPlacement,
     chordResolve,

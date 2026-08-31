@@ -257,6 +257,126 @@
           </div>
         </section>
 
+        <!-- What a render looks like, as opposed to where its sprites land
+             (that is the alignment panel, which is a dev instrument). Two
+             families, and the difference is not cosmetic: the top half is free
+             and instant everywhere, the bottom half is baked into a render and
+             so only reaches a stored map when that map is rendered again. The
+             markup says which is which because the price is the setting. -->
+        <section class="setgroup">
+          <h2>Map rendering</h2>
+          <p class="setlede">
+            How our map render is drawn — on the cards here, on the loading
+            screen, over the game, and on the in-game radar. One set of values,
+            read by all of them.
+          </p>
+
+          <div class="setrow">
+            <label class="opt" for="tuneOre">Ore</label>
+            <input id="tuneOre" type="color" class="tune-colour" />
+            <label class="opt" for="tuneGems">Gems</label>
+            <input id="tuneGems" type="color" class="tune-colour" />
+            <span class="help" tabindex="0" role="note" aria-label="About the ore and gem colours">?
+              <span class="tip">
+                The tint over an ore or gem field. Drawn over the picture rather
+                than into it, so a change here shows at once and re-renders
+                nothing.
+              </span>
+            </span>
+          </div>
+
+          <div class="setrow">
+            <label class="opt" for="tuneOreAlpha">Ore mark strength</label>
+            <input id="tuneOreAlpha" type="range" min="0" max="1" step="0.05" class="tune-dial" />
+            <output id="tuneOreAlphaOut" class="tune-out"></output>
+            <span class="help" tabindex="0" role="note" aria-label="About the ore mark strength">?
+              <span class="tip">
+                How strongly the whole ore marking reads. It scales the marking
+                rather than replacing it, so the fill stays fainter than its
+                border at every setting — that ratio is what makes a field
+                legible against the ground under it. Zero hides the marking.
+              </span>
+            </span>
+          </div>
+
+          <div class="setrow">
+            <label class="opt" for="tuneShroudDim">Radar: gap-generator field</label>
+            <input id="tuneShroudDim" type="range" min="0" max="1" step="0.05" class="tune-dial" />
+            <output id="tuneShroudDimOut" class="tune-out"></output>
+            <span class="help" tabindex="0" role="note" aria-label="About the radar shroud dim">?
+              <span class="tip">
+                Ground under an enemy Gap Generator&rsquo;s field is dimmed to
+                this. <em>0</em> — the default — makes it read as unexplored,
+                which is what it is: a field you cannot see into is not ground
+                you have scouted. <em>0.35</em> is the client&rsquo;s own
+                dimming, if you would rather see where the field is.
+                <br />
+                This is the only shroud state besides black: Red Alert 2 has no
+                &ldquo;explored but out of sight&rdquo; layer, and the
+                game&rsquo;s own dim flag is written by nothing but a Gap
+                Generator. Radar only — it changes no stored render.
+              </span>
+            </span>
+          </div>
+
+          <div class="setrow">
+            <label class="opt" for="tuneUnitSize">Radar: blip size</label>
+            <input id="tuneUnitSize" type="range" min="0.5" max="4" step="0.05" class="tune-dial" />
+            <output id="tuneUnitSizeOut" class="tune-out"></output>
+            <label class="opt" for="tuneUnitBrightness">brightness</label>
+            <input id="tuneUnitBrightness" type="range" min="0.2" max="2" step="0.05" class="tune-dial" />
+            <output id="tuneUnitBrightnessOut" class="tune-out"></output>
+            <span class="help" tabindex="0" role="note" aria-label="About the radar blip size and brightness">?
+              <span class="tip">
+                The unit and building blips on the radar. They are drawn over the
+                finished picture rather than into it, so neither the pair below
+                nor the per-type dials reach them &mdash; an annotation that
+                dimmed with the map it annotates would be unreadable exactly when
+                the map was. This is their own pair.
+                <br />
+                A blip sits on one isometric cell, which is about four pixels by
+                two at a usable panel size. Size multiplies that, and the
+                two-pixel floor stays under it, so a blip never disappears.
+                Radar only &mdash; it changes no stored render.
+              </span>
+            </span>
+          </div>
+
+          <div class="setrow">
+            <label class="opt" for="tuneAllBrightness">All: brightness</label>
+            <input id="tuneAllBrightness" type="range" min="0.2" max="2" step="0.05" class="tune-dial" />
+            <output id="tuneAllBrightnessOut" class="tune-out"></output>
+            <label class="opt" for="tuneAllContrast">contrast</label>
+            <input id="tuneAllContrast" type="range" min="0.2" max="2" step="0.05" class="tune-dial" />
+            <output id="tuneAllContrastOut" class="tune-out"></output>
+            <span class="help" tabindex="0" role="note" aria-label="About the global brightness and contrast">?
+              <span class="tip">
+                Over the finished picture, so this one is free: it reaches every
+                render you already have, the map&rsquo;s own preview and the
+                radar, immediately and without re-rendering anything. The marks
+                and tech-building pictograms drawn over a render are left alone
+                — an annotation that dimmed with the map would be unreadable
+                exactly when the map was.
+              </span>
+            </span>
+          </div>
+
+          <!-- One row per element type, built in options.js from
+               src/render-tune.js so the list cannot drift from the render's own
+               passes. Baked, unlike everything above: these need the types kept
+               apart, which is only true while the render is being made. -->
+          <h3 class="tune-subhead">By element type</h3>
+          <p class="setlede">
+            Baked into the render, so a change here reaches a stored map only
+            when that map is rendered again.
+          </p>
+          <div id="tuneTypes" class="tune-types"></div>
+          <p id="tuneStale" class="tune-stale"></p>
+          <div class="setrow">
+            <button id="tuneReset" type="button" class="ghost">Reset map rendering</button>
+          </div>
+        </section>
+
         <!-- The colours the match is played in, by role rather than by slot.
              The rows are built in options.js from the colour table the game tab
              harvests out of the client's own rules: a name here has to be one
@@ -587,6 +707,90 @@
           </div>
         </section>
 
+        <!-- Two columns, the same shape and for the same reason as the build-chord
+             editor above: the prose is five paragraphs and the grid under it is a
+             keyboard five keys wide, and a `.setgroup` caps itself at 62ch so a
+             line of text stays readable. Down one column that cap was the grid's
+             width too, so the grid overflowed it and grew a horizontal scrollbar
+             — which is exactly what it looked like. -->
+        <section class="setgroup setgroup-wide">
+          <h2>Taunts</h2>
+          <div class="chordsplit">
+            <div class="chordprose">
+          <p class="setlede">
+            The game has eight taunts and a key for each — <em>F5</em> to
+            <em>F12</em> as it ships. A browser keeps the top of that range for
+            itself: <em>F11</em> is fullscreen and <em>F12</em> is developer
+            tools, and a page cannot take either back, so two of the eight
+            cannot be pressed at all and the rest are a hand off the keyboard.
+          </p>
+          <p class="setlede">
+            The key in the list above opens them as a grid under the cursor,
+            laid out like the build chords — <em>qwert</em> on the top row,
+            <em>asdfg</em> under it. A key sends that taunt and closes the grid;
+            <em>Esc</em> or a click outside closes it without sending. Each tile
+            carries <strong>what the taunt says</strong>, under a strip naming
+            the country you drew and its flag — the eight lines are per country,
+            so the same key means something else in the next match. Each tile
+            also shows the key the <strong>game</strong> has on that taunt, and
+            clicking it — or right-clicking the tile — listens for a new one and
+            writes it into the game's own keyboard file, exactly as its
+            Options → Keyboard screen would. That binding then works with
+            nothing of ours open.
+          </p>
+          <p class="setlede">
+            Two things worth knowing before you press one. A taunt is only ever
+            sent to <strong>other players</strong>, so it does nothing in a match
+            against the computer, and there is a five-second cooldown between
+            them. And the sounds are the ones your own client imported — a
+            country whose <em>Taunts</em> folder is empty sends the taunt anyway
+            and hears nothing, which the grid marks by striking the name
+            through.
+          </p>
+          <p class="setlede">
+            The eight lines below are <strong>one country's</strong> — every
+            country has its own set and there is no shared one. Pick a country
+            to read what its taunts say; the layout you edit under them is the
+            same layout whichever one is picked. A line too long for its tile is
+            clipped, and hovering the tile shows the rest. The flag belongs to
+            the game's own art and only the in-game overlay can draw it.
+          </p>
+          <p class="setlede">
+            The <strong>▶</strong> on a tile plays that taunt. The sounds are
+            the ones your own client imported and they live inside the game's
+            own storage, which a settings page cannot open — so the first play
+            asks a game tab for the file, and opens one if none is running.
+            That first one can take a while: the client has to finish loading
+            its game files before it can look, and the file itself is converted
+            on the way — Red Alert 2 stores its taunts in a compressed form no
+            browser will play, so the game tab runs them through the client's
+            own decoder first.
+          </p>
+          <p class="setlede">
+            If nothing plays, the line under the grid says <strong>which</strong>
+            absence it is — no <em>Taunts</em> folder at all, or a folder without
+            this country's file in it. Red Alert 2 keeps its taunts as loose
+            <em>.wav</em> files in a <em>Taunts</em> folder beside the game, not
+            inside a <em>.mix</em>, so an import taken from mix files alone has
+            none of them. That is the client's state and not this page's: those
+            taunts are silent in matches too, which is what a struck-through
+            name in the in-game grid means.
+          </p>
+            </div>
+            <div class="chordcontrols tauntcontrols">
+          <div id="tauntCountries" class="tauntsides"></div>
+          <div id="tauntGrid" class="chordgrid"></div>
+          <p id="tauntNote" class="count"></p>
+          <div class="chordedit">
+            <span id="tauntSlotName" class="chordslotname">Pick a key above to change which taunt is on it.</span>
+            <select id="tauntPick" aria-label="Taunt for this key" disabled></select>
+            <button id="tauntClear" class="keybtn" type="button" disabled>Clear key</button>
+            <button id="tauntReset" class="keybtn" type="button">Reset layout</button>
+          </div>
+            </div>
+          </div>
+        </section>
+
       </div>
     </section>
 
@@ -747,6 +951,13 @@
           title="The leaderboard's game page, the client's own #/replay/ route, the .rpl link itself, or a bare game id."
         />
         <button id="replayGo" type="button" title="Read the replay and show both build orders.">Open</button>
+        <!-- The third way in, and the only one that needs no network: a .rpl
+             the user already has, or a report exported from this page. Its own
+             game id is in the file, so a replay the hosts still serve is matched
+             back to its match and re-runs like a fetched one. A visible input
+             rather than a hidden one behind a button, which is how this page
+             already takes a settings backup. -->
+        <input id="replayFile" type="file" accept=".rpl,.json,application/json" aria-label="A replay file from disk" title="Open a .rpl from this machine, or a report exported from this page. Nothing is uploaded." />
         <!-- Its own class, not .alignhint: that one is the status text at the
              end of a bar and takes the row's slack, which on this bar opened a
              hand's width of nothing between the two ways in. -->
@@ -837,6 +1048,9 @@
     <!-- The pictograms, shared with the renderer: this page composites them over
          a full render that no longer carries them baked in. -->
     <script src="glyphs.js"></script>
+    <!-- The render's appearance table, shared with the renderer and the in-game
+         radar. This page owns the dials; the other two read them. -->
+    <script src="render-tune.js"></script>
     <script src="ladder.js"></script>
     <!-- The replay reader and the object table it names what it decodes with.
          Two sources, and the order matters: this file is the bootstrap, loaded

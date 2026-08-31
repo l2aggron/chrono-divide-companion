@@ -6,7 +6,7 @@
  * owns extension storage and talks to the page over window.postMessage.
  *
  *   page   -> bridge : { source: "cdc-page",   type: "ready" | "map-seen" | "map-render" |
- *                                                     "prefs-set" | … }
+ *                                                     "prefs-set" | "appearance-set" | … }
  *   bridge -> page   : { source: "cdc-bridge", type: "config" | "stored" }
  *
  * Storage shape (chrome.storage.local), keyed by the map's file name — the map
@@ -43,6 +43,10 @@
  *            position, not a list of key descriptors.
  *            Before 0.55.1 this held whole sections as arrays, which froze a
  *            layout against later fixes; those are dropped on load.
+ *   taunts:  { "<slot>": 1..8 | null }
+ *            The taunt overlay's layout overrides, on the same terms as
+ *            `chords` above and with no side to key them by: a taunt is the
+ *            same taunt whatever country you drew.
  *   roster:  { version, at, items: [ { name, type, sides: ["Allied"] }, … ] }
  *            What the client says can be built, harvested in the game tab from
  *            its own rules (companion.js sendRoster) because the options page
@@ -118,6 +122,18 @@
  *            over hq-preview.js's shipped SPRITE_FIX; the render reads it
  *   spriteFixByName: { "<object name>": { x, y } }  // the same, for one object
  *            rather than a whole type — e.g. CAAIRP, the airport
+ *   appearance: { ore, gems, oreAlpha, shroudDim, all: { brightness, contrast },
+ *              types: { "<element type>": { brightness, contrast } } }
+ *            What the render looks like, as opposed to where its sprites land.
+ *            Shape, defaults and clamps belong to src/render-tune.js, which is
+ *            the one copy all four consumers read; this half only carries it.
+ *            Whole rather than exceptions-only: a missing contrast that reads
+ *            as 0 is a grey rectangle, and the failure would surface in a
+ *            render far from the read that caused it.
+ *   radarProbe: { v, at, client, map, S1_… }   // dev build only — the live
+ *            answers the in-game radar is being built on: shroud vocabulary,
+ *            whether revealed stays revealed, and the shapes of the order, pan
+ *            and beacon paths in the client actually running
  *   align:   { key, name, width, height, fix, layers: ["base", …], at }
  *   settings: { at, requested: "read" | "write" | false, want, payload,
  *              done, ok, error, data, report, previous }
@@ -127,6 +143,13 @@
  *            the options page can offer the user a file; this is what they
  *            say to each other. Nothing of the extension's own settings goes
  *            through here — the options page holds those already.
+ *   tauntWav: { at, requested: "tau<cc><nn>.wav" | false, file, started,
+ *              done, ok, missing, wav, why, error, cleared }
+ *            One taunt audition. Same shape and same reason as `settings`:
+ *            the sound files are the player's own import and live in the
+ *            client's origin-private file system, which is per origin, so an
+ *            options page cannot open one and a game tab must fetch it. `wav`
+ *            is a data URL and is cleared by the page once it has played.
  *   align:<layer>: dataUrl                     // one item per layer, megabytes
  *
  * The full-size render lives in an item of its own, not in `renders`, because a
@@ -178,6 +201,7 @@
     keys: {},
     builds: {},
     chords: {},
+    taunts: {},
     commandKeys: [],
     // The offered list stays in storage for the options page. Unlike
     // `commandKeys` beside it there is nothing in the game tab that wants it
@@ -198,6 +222,7 @@
     spawnFix: {},
     spriteFix: {},
     spriteFixByName: {},
+    appearance: {},
   };
 
   /**
@@ -383,6 +408,7 @@
           builds: {},
           commandKeys: [],
           chords: {},
+          taunts: {},
           rosterVersion: "",
           cameoVersion: "",
           replayTypesVersion: "",
@@ -391,6 +417,7 @@
           spawnFix: {},
           spriteFix: {},
           spriteFixByName: {},
+          appearance: {},
           renders: {},
           count: 0,
         });
@@ -408,6 +435,7 @@
         // DEFAULTS above.
         commandKeys: data.commandKeys,
         chords: data.chords,
+        taunts: data.taunts,
         // The stamp only, not the roster: the page is where the roster came
         // from and has no use for it back — it sends one when this disagrees
         // with the client it is running against, and stays quiet when it does
@@ -432,9 +460,32 @@
         spriteFix: data.spriteFix,
         // A handful of pairs of numbers, on the same terms as spriteFix above.
         spriteFixByName: data.spriteFixByName,
+        // What a render looks like. Travels whole with every push for the same
+        // reason spriteFix does: the renderer cannot fetch it at the moment it
+        // needs it, and the radar repaints against it live.
+        appearance: data.appearance,
         renders: renderVersions(data.renders),
         count: Object.keys(data.maps).length,
       });
+    });
+  }
+
+  /**
+   * The appearance table, written from the game tab's own dials.
+   *
+   * Whole rather than merged, which is the same way the options page writes it:
+   * the sender normalises the table before posting, so there is one shape on
+   * disk and a partial write is the only thing that could leave a half-updated
+   * pair there.
+   */
+  function setAppearance(appearance) {
+    if (!appearance || typeof appearance !== "object") return;
+    write({ appearance }, () => {
+      if (chrome.runtime.lastError) {
+        logLine(`could not store the appearance table — ${chrome.runtime.lastError.message}`, "warn");
+        return;
+      }
+      logLine("appearance from the game: the in-game dials");
     });
   }
 
@@ -827,6 +878,58 @@
    * is a copy of a file the user still has, and there is nothing to be gained
    * from leaving it in storage.
    */
+  /**
+   * One taunt's sound, fetched for the options page.
+   *
+   * The same request-and-answer-on-one-storage-item shape as `settings`, and
+   * for the same reason: storage is the only thing an options page and a game
+   * tab share. A separate item from `taunts`, which is the *layout* — a config
+   * push watches that one, and an audition must not look like a layout edit.
+   *
+   * `wav` is a data URL and is the largest thing this extension ever puts in
+   * storage — around 100 KB for a two-second clip. It is overwritten by the
+   * next audition and cleared by the page once it has played, so what is left
+   * behind between sessions is the file name and nothing else.
+   */
+  function tauntWavPatch(patch) {
+    begin();
+    chrome.storage.local.get({ tauntWav: null }, (data) => {
+      if (chrome.runtime.lastError) {
+        console.warn(TAG, "could not read the taunt job", chrome.runtime.lastError);
+        end();
+        return;
+      }
+      write({
+        tauntWav: { ...(data.tauntWav || {}), ...patch, requested: false, patchedAt: Date.now() },
+      });
+      end();
+    });
+  }
+
+  function startTauntWav(request) {
+    const file = String((request && request.requested) || "");
+    // The name is the client's own `tau<cc><nn>.wav`, and it is about to become
+    // a file-system lookup on the page: anything else is refused here rather
+    // than forwarded.
+    if (!/^tau[a-z]{2}\d{2}\.wav$/.test(file)) {
+      tauntWavPatch({ file, done: true, ok: false, missing: false, wav: "", error: "not a taunt file name" });
+      return;
+    }
+    tauntWavPatch({
+      file,
+      started: Date.now(),
+      done: false,
+      ok: false,
+      missing: false,
+      wav: "",
+      why: "",
+      error: "",
+      // A new request is not the last answer emptied, whatever the item held.
+      cleared: false,
+    });
+    post({ type: "taunt-wav-job", file });
+  }
+
   function settingsPatch(patch) {
     begin();
     chrome.storage.local.get({ settings: null }, (data) => {
@@ -1113,6 +1216,17 @@
       logLine(data.msg, data.level, "page");
     } else if (data.type === "map-render") {
       rememberRender(data.key, data.render);
+    } else if (data.type === "taunt-wav-result") {
+      tauntWavPatch({
+        file: data.file,
+        done: true,
+        ok: !!data.ok,
+        missing: !!data.missing,
+        wav: data.wav || "",
+        why: data.why || "",
+        error: data.error || "",
+        finishedAt: Date.now(),
+      });
     } else if (data.type === "render-wanted") {
       sendRender(data.key);
     } else if (data.type === "names-wanted") {
@@ -1129,8 +1243,18 @@
       rememberCameos(data.cameos);
     } else if (data.type === "replay-types") {
       rememberReplayTypes(data.replayTypes);
+    } else if (data.type === "radar-probe") {
+      // The dev build's radar probe, collected while a match is played and read
+      // back with `node scripts/read-storage.mjs radarProbe`. One item, written
+      // whole: the page half already throttles it to a change in the answer, so
+      // a write here is a write worth making. Absent from the public build --
+      // src/radar-probe.js is dropped from the manifest there and nothing ever
+      // sends this.
+      write({ radarProbe: data.report });
     } else if (data.type === "prefs-set") {
       setPrefs(data.prefs, data.clearPreviewSrc);
+    } else if (data.type === "appearance-set") {
+      setAppearance(data.appearance);
     } else if (data.type === "settings-result") {
       settingsPatch({
         done: true,
@@ -1229,12 +1353,14 @@
       changes.keys ||
       changes.builds ||
       changes.chords ||
+      changes.taunts ||
       changes.prefs ||
       changes.renders ||
       changes.previewSrc ||
       changes.spawnFix ||
       changes.spriteFix ||
-      changes.spriteFixByName
+      changes.spriteFixByName ||
+      changes.appearance
     ) {
       pushConfig();
     }
@@ -1244,6 +1370,8 @@
     if (bulk && bulk.requested) startBulk(bulk);
     const settings = changes.settings && changes.settings.newValue;
     if (settings && settings.requested) startSettings(settings);
+    const tauntWav = changes.tauntWav && changes.tauntWav.newValue;
+    if (tauntWav && tauntWav.requested) startTauntWav(tauntWav);
   });
 
   /**
@@ -1266,12 +1394,20 @@
   function takePendingRun() {
     if (tookPending) return;
     tookPending = true;
-    chrome.storage.local.get({ bulk: null, sim: null, settings: null }, (data) => {
+    chrome.storage.local.get({ bulk: null, sim: null, settings: null, tauntWav: null }, (data) => {
       if (chrome.runtime.lastError) {
         console.warn(TAG, "could not read the run state", chrome.runtime.lastError);
         return;
       }
       if (data.bulk && data.bulk.requested) startBulk(data.bulk);
+      // The page world's fetch patch is waiting to hear whether there is a
+      // replay to hand over, and it has to be told **either way**: a null is
+      // what lets it step out of the way, and without one it sits in front of
+      // the client's own fetch until its backstop fires. Posted on every replay
+      // route for that reason, job or no job.
+      if (typeof location !== "undefined" && /^#\/replay\//.test(location.hash)) {
+        post({ type: "sim-local", text: (data.sim && data.sim.requested && data.sim.text) || null });
+      }
       // A replay run is the other kind of job this tab can have been opened
       // for, and the two never arrive together: one wants the client's menu,
       // the other wants it already on a match.
@@ -1279,6 +1415,7 @@
       // And the third: a backup asked for in a browser with no game tab open,
       // which is the ordinary case — the options page is where it starts.
       if (data.settings && data.settings.requested) startSettings(data.settings);
+      if (data.tauntWav && data.tauntWav.requested) startTauntWav(data.tauntWav);
     });
   }
 

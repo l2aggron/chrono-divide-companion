@@ -12,6 +12,11 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
   renders a preview in the lobby, and the loading screen does not).
 - **In-game overlay** — the same roster, map facts and hint, with the preview
   over the radar, on a key of yours.
+- **Our own radar** — the map render as a radar of its own, on a key: terrain,
+  ore, units, tech buildings and the camera's rectangle as separate layers, all
+  of it behind your own shroud. The client's radar reads one colour per tile and
+  cannot layer them. Clicks work as they do on the native one — order, move the
+  camera, and `Alt`+right drops a beacon, on the radar or out in the world.
 - **Build hotkeys** — a key that queues one of something, which the game has
   none of. One press is one cameo click. Placement stays yours.
 - **Game commands on our keys** — a key of yours that fires one of the
@@ -19,9 +24,15 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
   not rebind: the alliance screen is stamped onto `Tab` every time the client
   loads its key table, and is missing from its keyboard options entirely.
   Binding `Tab` here is what frees it.
+- **Taunts** — the game's eight taunts as a grid under the cursor, on a key of
+  yours, laid out on the same block of keys a build chord uses. Which taunt sits
+  on which key is yours to set, for any of the nine countries that have them,
+  and the settings page plays them back: Red Alert 2 stores its taunts in a
+  format no browser decodes, so a game tab converts one on the way out.
 - **Mouse buttons as bindings** — a mouse press binds wherever a key does,
   build orders included. Buttons 3 and up, bare or with modifiers. Left, middle
-  and right are never offered.
+  and right are never offered; the beacon above is the one fixed exception, and
+  it is fixed because it has to outrun the client's own deselect.
 - **Build chords** — press a sidebar-tab key twice quickly (or once, by
   preference) and that tab opens as a grid of cameos under the cursor, laid out
   like the `qwert`/`asdfg`/`zxcvb` block itself. The next key orders that slot.
@@ -44,6 +55,15 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 - **Production panel** — all six queues at once, including the empty ones,
   which the sidebar cannot show because it only ever draws the tab you are
   looking at.
+- **The sidebar collapses to its power bar.** A key of yours hides the whole
+  right-hand panel — cameos, the four tabs, the radar, the credits and the
+  repair, sell, diplomacy and options buttons — and keeps the power bar, moved
+  flush against the right edge instead of floating where the panel used to
+  start. The game view widens into the strip that frees up and the camera pans
+  to the map edge that reveals. Everything the panel does has a key by now; the
+  power reading is the one part that does not, which is why it is what stays.
+  The game's own in-game menu brings the panel back for as long as it is open,
+  because that menu is drawn inside it.
 - **The game's menu off Escape** — in a match Escape is the game's own key for
   the menu whose third button is *Abort Mission*, which is a reflex and a click
   away from quitting. It moves to a key of yours, so it opens on a press you
@@ -70,6 +90,21 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
   allies, and each opponent in turn. The game repaints itself — units, buildings, radar
   blips, health bars — and nothing is sent to anyone else.
 
+- **Replays** — a ladder replay states its own build order, and reading one
+  needs neither the game nor a match. The **Replays** tab decodes a `.rpl` —
+  picked off your own ladder history, or opened from a file on disk — and lays
+  both players' build orders against one clock, with who won beside the name,
+  what each order cost, and every loss on that same timeline. The charts under
+  it are one column of full-width rows sharing one crosshair, in an order you
+  set by dragging.
+- **And the match can be re-run**, which is how the report answers what the file
+  cannot. A replay records what each player *did*; power and the brownouts under
+  it, how many factories a queue was running off, and what a spy walked away
+  with are what *happened to them*, and only the simulation knows those. The tab
+  plays the replay through in a game tab it opens and closes itself, at around
+  forty times the speed it was played, and reads the counters off the running
+  match.
+
 - **Settings backup** — the game keeps its hotkeys in a file inside the
   browser's own private storage and its other options in that browser's
   localStorage, so a second browser starts blank and there is nothing on disk to
@@ -81,11 +116,13 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 
 - [Keys](#keys)
 - [In-game overlay](#in-game-overlay)
+- [The radar](#the-radar)
 - [Build hotkeys](#build-hotkeys)
 - [The lag, and why a press does not wait for
   it](#the-lag-and-why-a-press-does-not-wait-for-it)
 - [Build chords](#build-chords)
 - [Game commands on our keys](#game-commands-on-our-keys)
+- [Taunts](#taunts)
 - [Mouse buttons](#mouse-buttons)
 - [The production panel](#the-production-panel)
 - [The net readout](#the-net-readout)
@@ -97,6 +134,7 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 - [Per-map guides](#per-map-guides)
 - [The render in the UI](#the-render-in-the-ui)
 - [Full map render](#full-map-render)
+- [Replays](#replays)
 - [Settings backup](#settings-backup)
 
 **Installing it, and finding out what it did**
@@ -129,7 +167,9 @@ What you can bind:
 | | What it opens |
 |---|---|
 | the [in-game overlay](#in-game-overlay) | roster, map facts, hint, and the preview over the radar |
+| the [radar](#the-radar) | our own radar from our own render — terrain, ore, units, tech buildings, the camera box, behind your own shroud |
 | the [production panel](#the-production-panel) | all six queues, the empty ones included |
+| the [taunts](#taunts) | the game's eight taunts as a grid, each tile carrying what it says and the key the game has on it |
 | the [net readout](#the-net-readout) | ping, order latency, frames, turn length, every player's ping |
 | the [memory readout](#memory-readout) | what the tab is holding. It also opens itself when something is wrong |
 | the preview swap | swaps both previews between the client's picture and ours, and keeps the answer |
@@ -166,6 +206,97 @@ The you/ally/opp marks appear only when the local player can be identified with
 certainty (`countryName` matches exactly one player). When two players picked
 the same country the marks are dropped rather than guessed — the names and
 factions still read fine without them.
+
+## The radar
+
+**Its key** opens a radar of our own, drawn from our own map render, over the
+client's. It is a clone of the native one — same ground, same click semantics —
+with the detail of the render behind it, and a panel you can move and resize.
+
+Why a second radar rather than a better first one: the client's
+`MinimapRenderer` makes one pass and reads **one colour per tile**, so terrain,
+shroud and ownership have to partition that single value. A canvas of our own
+has no such limit, and each of them becomes a layer:
+
+| layer | what it is |
+|---|---|
+| terrain | the extension's own render of this map, composited from its per-type layers and scaled to the panel |
+| ore and gems | every ore and gem cell, marked in the colours from **Map rendering** — as cells rather than baked pixels, so the colour changes without redrawing anything |
+| units | one blip per object, in its owner's colour; a building fills the cells of its footprint |
+| tech buildings | the same six pictograms the map previews use — oil derricks, hospitals, and the rest |
+| the shroud | everything above is covered wherever you have not scouted |
+| the camera | a white rectangle around what the game view is showing |
+
+**What it shows is what your own shroud reveals, and nothing else.** Every layer
+is gated on the same mask the client's own `getVisibleUnits` filters by, a
+cloaked unit is hidden unless you have shared intel with its owner, a disguised
+one is drawn as its disguise, and a Gap Generator's field reads as unexplored
+for as long as it is up. Start positions are not marked at all.
+
+**The bar says which cell the cursor is over**, which is the readout that
+answers "is this pointing where I think it is" without a screenshot.
+
+### Clicking on it
+
+| press | what it does |
+|---|---|
+| **left** | orders the selection there — move, attack, capture, repair, dock, whatever that target deserves |
+| **right** | moves the camera there |
+| **Alt + right** | drops a beacon on that cell |
+
+The first two are handed to the client's **own** minimap click path, which is
+the one its own radar dispatches into. So the client's *right click moves* option
+swaps them here exactly as it swaps them there; the order is chosen by the
+client's own default-action handler rather than by us; a building waiting to be
+placed or a superweapon waiting for a target consumes the click as it would on
+the native radar; and a click that issues no order — a left click with nothing
+selected — moves the camera, which is what the native radar does too.
+
+**Alt + right also works out in the world**, which is the point of it: one press
+anywhere on the map drops a beacon on the tile under the cursor, **and the
+selection survives**. The client drops the selection on any right press, so this
+one is intercepted before the client sees it. Beacons are a multiplayer thing —
+the client itself skips them in a skirmish, and the panel says so once rather
+than leaving you clicking.
+
+### The dials
+
+The bar's **dials** button opens a drawer of the appearance controls that change
+a live picture and leave every stored render alone: brightness, contrast, blip
+size, blip brightness, how far a gap field is dimmed, and whether the shroud is
+drawn at all. Click anywhere along a track to set it; right-click a track for its
+default.
+
+They are tracks rather than sliders on purpose. The client holds a pointer lock
+for the whole of a match, and under one no page element can be dragged, focused
+or scrolled to — so a normal slider would be inert exactly when this drawer is
+wanted. One click sets a value and needs neither.
+
+The rest of the appearance table — the ore and gem colours, the ore mark
+strength, and brightness/contrast for each of the eight element types — is on the
+options page under **Map rendering**, because those bake into the render and are
+better judged against a big picture. Everything in both places is one shared
+table: the drawer and the options page write the same values, and every picture
+the extension draws reads them.
+
+### What it puts on the wire, stated plainly
+
+**Three things, all of them the client's own actions, and none of them new.**
+
+- A left click is the client's own order action — the same one a click in the
+  world sends, through the same method, with the same selection sync,
+  duplicate-order dedupe and acknowledgement sound. One click is one order.
+- A beacon is the client's own `PingLocation` action, the one its own
+  *place beacon* command sends, carrying the client's own rate limit. The
+  extension binds no key of its own to it: the client's `PlaceBeacon` is a mode
+  you enter and then click with, and this is the same thing in one press.
+- **Moving the camera sends nothing at all.** It is local render state — the
+  same call the client's own radar makes — so there is no action, no traffic and
+  nothing the lockstep can disagree about.
+
+The drawing side sends nothing and asks the client for nothing: the picture is
+rendered from the map file the client already parsed, and the live layers are
+reads of state this client already holds.
 
 ## Build hotkeys
 
@@ -803,6 +934,134 @@ synthetic `KeyboardEvent` is involved.** The extension has one of those
 (`reissueFullscreenKey`) and it exists because fullscreen needs the client's
 keyboard *lock*, not because a command needs a key.
 
+## Taunts
+
+**Its key** opens the game's eight taunts as a grid under the cursor, laid out
+on the same block of keys as the [build chords](#build-chords) — `qwert` on the
+top row, `asdfg` under it. A slot key sends that taunt and closes the grid;
+`Esc`, or a click outside, closes it without sending. Which taunt sits on which
+key is editable under **Settings** → *Taunts*, exactly as a chord layout is.
+That editor draws the same tiles this does, with a row of countries over them:
+the layout is one layout whichever country is picked, but the *words* are not,
+and picking one is how you read another country's eight without drawing it. The
+flag is the game's own art and only the in-game overlay can reach it.
+
+**Every tile there has a ▶ that plays the taunt.** The sounds are the ones your
+own client imported, and they live in the game's origin-private file system —
+per origin, so a settings page cannot open one at all. The first play therefore
+asks a game tab for the file and opens one if none is running; after that the
+file is held in the page and playing is instant.
+
+**The file is converted on the way out, and has to be.** Red Alert 2 ships its
+taunts as **4-bit IMA ADPCM** inside a RIFF wrapper, which no browser decodes —
+an `<audio>` element handed one answers *"Failed to load because no supported
+source was found"*. The client never uses `<audio>`: `WavFile#getData` runs the
+same `wavefile` conversion its own mixer is fed from, so the game tab borrows
+that and sends PCM. A file that is already PCM goes through the same call
+unharmed.
+
+Nine countries are offered, not ten: **Yuri has no taunt files in a Red Alert 2
+client**, so its lines are not carried and it is not in the picker.
+
+**If nothing plays, the line under the grid says which absence it is**, because
+there are two and they want opposite things done about them:
+
+| what it says | what it means |
+|---|---|
+| *this client has no "Taunts" folder* | your import brought no taunt sounds — see below |
+| *"Taunts" is there but holds no `tau…​.wav`* | the folder exists and this country's file is not in it |
+| *…and did not finish loading its game files in two minutes* | the tab it asked never got past its splash screen |
+
+**Red Alert 2 keeps its taunts as loose `.wav` files in a `Taunts` folder beside
+the executable**, not inside a `.mix`. So an import taken from mix files alone —
+or a client served its game data from the CDN — has no taunt sounds at all, and
+that is a fact about the client rather than about this extension: *the taunts
+are silent in matches too*, which is what the struck-through names in the
+[in-game overlay](#taunts) have been saying. Re-importing from a full install
+that has the folder is what puts them there.
+
+`__cdc.probe()` answers it from the console without pressing anything —
+`tauntSounds` is *yes*, *no — nothing imported a "Taunts" folder*, or *n/a*
+while a client is still starting.
+
+The reason it is worth a grid at all is the keys the game gives them. The
+shipped `[Hotkey]` table binds `Taunt_1` … `Taunt_8` to key codes 116–123 —
+**F5 to F12** — and a browser keeps the top of that range for itself: F11 is
+fullscreen, F12 is developer tools, and a page cannot cancel either. So two of
+the eight cannot be pressed at all in a browser, and the other six are a hand
+off the keyboard mid-match.
+
+**Each tile says what the taunt says**, and a strip over the grid says whose
+taunts these are: the country you drew, with the client's own flag beside it.
+Both halves are needed, because the eight lines are **per country** — every
+country has its own set, and the same key means something else in the next
+match. Taunt 6 is a laugh in every country and has no words at all, so it is
+named rather than quoted. Between matches there is no country and no words: the
+tiles fall back to what each taunt is *for* — *out of money*, *demand
+surrender* — in italics, since a role is not a quote.
+
+**The key and the number are a rail down the left of the tile**, not badges in
+its corners: as badges they cost the tile a band across its whole top to clear
+them, which is a row of empty pixels on every tile of the grid. The key is the
+biggest thing on the tile, because it is what you press.
+
+**A tile is a fixed size and a long line is cut rather than allowed to grow it.**
+Hovering the tile shows the rest, drawn over the grid rather than inside the
+tile, so nothing moves under the cursor. Whether a line was cut is *measured*,
+not guessed from its length — at the shipped tile width and the client's own
+condensed font none of the eighty lines is cut at all, and a browser that fell
+back to a wider font is the case this exists for.
+
+The lines are in no file the client ships. A taunt is a sound and nothing else;
+there is no string table behind it, so these were transcribed from a recording
+of all eight per country and are the words as spoken rather than as written
+anywhere. The numbering is the client's own and runs the other way from the
+order they are usually recited in: `sendTaunt(1)` is the F5 line — *out of
+money* — and `sendTaunt(8)` is the F12 gloat.
+
+**Each tile also carries the key the game itself has on that taunt**, read live
+from the client's own `KeyBinds` table rather than assumed — so a taunt you have
+already moved in the client's Keyboard screen shows where you moved it, and one
+the client has bound to nothing says so.
+
+**Clicking that key — or right-clicking the tile — rebinds it in the game.**
+The next key you press goes through `KeyBinds#changeHotKey` and is saved to
+`keyboard.ini` in the client's own file system, which is the same call and the
+same file its Options → Keyboard screen writes. That binding then works with
+nothing of ours on screen, and travels in a [settings backup](#settings-backup)
+like any other client binding.
+
+Two things the client's own screen does not tell you, and this does:
+
+- **`hotKeys` is keyed by code**, so binding a taken key silently unbinds
+  whatever had it. That is not hypothetical — it is how a stock install loses
+  *Health Navigation*: the client wants `U` for it and the shipped ini puts
+  `PageUser` on 85 afterwards, so `U` ends up a beep. A rebind here names the
+  command it displaced.
+- **A key this extension consumes never reaches the client**, because our
+  listener is on `window` in the capture phase. Binding a taunt to one of those
+  would produce a binding that is real, saved and dead, so that is reported too.
+  Neither case is refused: you may mean either.
+
+What the grid says about a taunt you cannot hear:
+
+| the tile | what it means |
+|---|---|
+| dimmed | no connection, or the five-second cooldown is still running |
+| name struck through | the sound file for your country is not in the client's `Taunts` folder |
+| *no game key* | the client has this taunt bound to nothing |
+
+A taunt is only ever **sent to other players** — `TauntHandler#sendTaunt` checks
+that the game-server connection is open — so it does nothing at all in a match
+against the computer, and the grid says so rather than letting the key look
+broken. The sounds are per country and come out of your own Red Alert 2 import
+(`tauru03.wav` is the Russian third taunt); a missing file costs you the sound
+and nobody else theirs, since every client plays its own copy.
+
+Taunts are also in the list under [Game commands](#game-commands-on-our-keys),
+so a single taunt can have a key of ours without the grid — the two are the same
+`Taunt_N` command reached two ways.
+
 ## Mouse buttons
 
 **A mouse press binds wherever a key binds.** Click the key button in the
@@ -815,6 +1074,13 @@ order, middle is the browser's autoscroll. Everything above is free, so nothing
 above is excluded — a mouse with eight buttons either sends them as buttons, in
 which case they bind here, or its driver sends keystrokes, in which case they
 bind as keys.
+
+**One combination on those three is taken anyway, and it is not bindable.**
+`Alt` with the right button drops a [beacon](#the-radar) on the tile under the
+cursor. It is fixed rather than offered because of what it has to do to work: the
+client drops your selection on any right press, so the beacon has to be taken out
+of that press before the client sees it, and keeping the selection is the whole
+reason to have it. Every other right click reaches the game untouched.
 
 Modifiers work as they do on a key. Two side buttons are eight bindings, and
 `Ctrl` on a build binding still means *queue this next* — the flat build path
@@ -1552,7 +1818,7 @@ rendered. If every candidate is spoken for, the store goes over the cap rather
 than throwing notes away. What it does take is recorded, and
 this tab says so until it is dismissed.
 
-### Replays
+## Replays
 
 **A ladder replay states its own build order, and reading it needs neither the
 game nor a match.** A `.rpl` is a text file whose lines are the action frames the
@@ -1596,13 +1862,28 @@ sequential. A team game splits by team. A match that has no two sides (three
 free-for-all players, or slots with no team id) falls back to a column per
 player rather than inventing a pairing.
 
-Two ways in, because a replay arrives under two different names:
+Three ways in, because a replay arrives under three different names:
 
 - **paste** the leaderboard's game page (`ladder.chronodivide.com/…/game/<id>`),
   the client's own `#/replay/<url>` route, the `.rpl` link itself, or a bare
   game id.
+- **open a file** — a `.rpl` off your own disk, picked, dropped anywhere on the
+  tab, or pasted. Nothing is uploaded: the decoding is this page's, and a report
+  exported from here is read the same way. Which of the two arrived is told from
+  the contents rather than from the name, because a browser renames a second
+  download and a report saved as `.txt` is still a report.
 - **list a player's recent ranked matches** off the ladder and click one. That
   is the same match-history call the pool sampler uses (`src/ladder.js`).
+
+**A file is matched back to its own match.** A `.rpl` states its game id on its
+header line and a replay host names a file by exactly that id, so both realms are
+asked whether they still hold it. When one does, the file behaves in every way
+like a replay that was fetched — *Run the match*, *Export* and the remembered
+list all work on it, because none of the three can tell where the report came
+from. When neither does, the match is re-run **from the file itself**: the game
+tab is pointed at the URL the match would have had and handed the bytes when it
+asks for them, so the client's own route and its own whitelist check are left
+exactly as they are and only the answer comes from somewhere else.
 
 **Both ways in are remembered**, so the second time is a click: two panes sit
 under the boxes, side by side and each under the box it fills — the replays
@@ -1800,8 +2081,35 @@ not of a match. **A cancel is not one of them**: cancelling more than a queue
 holds empties it in one gesture, and the shortfall is the model's, not the
 player's (see the floor below).
 
-Under the timeline are two charts, one line per side, with a crosshair that
-names both numbers at whatever second you hover:
+Under the timeline are two charts, one line per side.
+
+**They are one column of full-width rows, and they share a crosshair.** Every
+chart here is time across the bottom, and they are read against each other — so
+the pointer over any one of them rules *all* of them at that second and opens
+every readout, which is what having a shared clock is for. They used to pack
+into a grid two or three abreast, which put the same moment at a different x in
+every column and left you matching times across a gutter by eye. Each SVG is
+drawn at the width it was given rather than scaled into it, so a full-width
+chart is more plot and not bigger text.
+
+**And you set the order.** Which two charts are worth putting next to each other
+is a question about the match, not about the report, so every caption carries a
+grip (⠿): drag a chart to where you want it, or focus the grip and use the arrow
+keys. The arrangement is remembered.
+
+The drag scrolls the report — the wheel works while you hold a chart, and
+holding it against the top or bottom edge carries the page under it, faster the
+further into the edge you push. It has to: nine full-width charts are several
+screens tall, and the first version of this was a native HTML5 drag, where the
+browser swallows the wheel and never scrolled the page, so nothing could be
+moved past whatever was already on screen.
+
+The readout opens **above** the plot rather than on it, over the caption and the
+legend of its own chart. The legend is naming the same lines the readout is, and
+the box goes away the moment the pointer leaves the chart — where a box sitting
+on the plot covered the part of the chart the numbers were about.
+
+The charts a report always has:
 
 - **Ordered value** — credits committed, units as the queue took them and
   buildings as they were placed. It is *not* income and not a bank balance: a
@@ -1839,7 +2147,7 @@ would not have sent the order had its own model shown the queue full. That
 window is measured — thirteen re-orders of a building still in a queue that
 holds one, every one inside 0.27 s, and the next observation 128 s away.
 
-#### Run the match
+### Run the match
 
 So the tab has a second half. **Run the match** plays the replay through in a
 game tab and reads the counters straight off the running match — measured on the
@@ -1859,6 +2167,92 @@ it (below), and why a fix here means re-running every stored match.
 
 What that adds to the report:
 
+- **Power, and the brownouts under it.** Produced against drawn, one pair of
+  lines per side, with every stretch a side spent short of power shaded behind
+  them — and the same shading running down that side's column of the build order,
+  across the empty rows as well as the full ones. A brownout with three rows in
+  it is a player who kept building through it; one with nothing in it is a player
+  who could not, and that is a thing only the timeline can show. The chart's own
+  line adds them up: how many, how long in total, the longest, and how many were
+  a **blackout** rather than a shortage.
+
+  The distinction is not cosmetic and is the reason the shading exists at all. A
+  base can be running a healthy surplus and be blacked out anyway — a spy walked
+  into a power plant, or a lightning storm is overhead — and in a chart of
+  production against drain that is invisible, because the two lines look fine.
+  `PowerTrait`'s own verdict is `power >= drain AND no blackout`, and the report
+  reads that verdict rather than recomputing the first half of it. Produced power
+  is also scaled by each building's health, so a damaged base browns out before
+  it loses a plant.
+- **Build speed per queue**, as a multiple of one factory at full power. Not an
+  output rate: the engine's build clock is
+  `baseBuildSpeed × buildSpeedModifier × multipleFactory^-(factories-1)`, and the
+  last two factors are the only ones that belong to the base rather than to the
+  item in the queue. So a second war factory reads **1.25×**, a third 1.56×, and
+  a base short of power reads below 1 — by a penalty proportional to how far short
+  it is, not a flat halving. A queue with no factory is a **gap** in the line,
+  because the engine's own expression gives 0.8 there for a queue that cannot run
+  at all.
+
+  **The Defence tab is not a line of its own.** It is a queue of its own — a
+  player builds a turret and a refinery at the same time — but the client's own
+  `getFactoryTypeForQueueType` answers `BuildingType` for both it and the
+  Structures tab, so the two come off the same construction yards and their
+  coefficients are the same number at every reading. The harvest records which
+  factory each queue reads and the chart keeps the first queue to claim one, so
+  a client that ever gave the Defence tab a factory of its own would get its line
+  back with nothing changed here.
+
+  Twelve possible lines is unreadable and two fixed ones is useless, so the
+  legend is the control: **infantry and vehicles are drawn**, everything else is
+  one click away, and a queue that never had a factory offers no control at all
+  and says why. The plot is rebuilt on a toggle rather than hidden, since the
+  axis is scaled to what is shown.
+
+  **A legend for ten lines is not a legend for two.** The side's name is written
+  once at the head of its own row rather than on every key, and each key is a
+  short piece of the line it stands for — drawn in that line's own classes, in a
+  viewBox whose units are pixels, so the dash in the key is the dash on the plot.
+  A round dot cannot show a dash at eight pixels across, which on the one chart
+  where two lines of a colour are told apart by their stroke made the key the one
+  thing that does not distinguish them. Charts whose two lines are one per side
+  keep the flat row: `Player_A: credits` over `P_B: credits` is the same
+  repetition moved sideways.
+- **Factories per queue** — the count the line above is worked out from, under
+  it and on the same clock. The chart above answers *how fast*, this one answers
+  *off how many*, and between them they separate the reasons a queue slowed: the
+  speed dipping while the count holds is the power, the count dropping is a
+  factory that died. Same queues, same legend, same two drawn at the start.
+
+  Three things it does differently, each because a count is not a coefficient.
+  **Nought is a reading, not a gap** — "no war factory yet" is the fact the chart
+  exists to show, and it is where the speed line starts. **A team sums** where
+  the speed takes the better of its two players: two players' barracks are two
+  barracks, while their build speeds are not additive at all. And the line is
+  **held between readings rather than sloped**, because a factory count changes
+  at an instant and a ramp across the five seconds between samples reads as one
+  and a half factories at a moment nobody had one and a half.
+
+  It also draws where the speed chart cannot: a profile that has never harvested
+  the rules table can state no coefficient, and the report says nothing rather
+  than inventing one — but the count came off the client and needs no rules.
+
+  Power, build speed and factories are one answer read down a column — the plant
+  landed *here*, so the brownout ended *here*, so the coefficient came back to 1
+  *here*.
+- **Spies, on both columns at once.** `BuildingInfiltration` names the building
+  and the spy, so an infiltration draws on the side that sent it and on the side
+  it happened to, at the same second — the one moment in a match where the two
+  build orders are describing each other. What the spy *did* is read off the
+  target the way the engine reads it: `AgentTrait#infiltrate` branches on
+  `rules.radar`, `rules.power`, a superweapon trait and `rules.storage`, and on
+  nothing else, so the row says the map went dark, or the base blacked out, or
+  the superweapon clock restarted, or about how many credits changed hands. The
+  amount is worked back rather than measured: the event is dispatched after the
+  theft, so only the balance left behind can be read, and with the rules' own
+  share beside it that recovers the figure to within the one credit the engine's
+  floor ate. The header counts them against the side that **sent** one, because
+  that is the move.
 - **Losses on the timeline itself**, on the same clock as the build order and
   marked with a minus: `−War Miner ×4` at 2:09, then `−Sentry Gun` twice, then
   the base — `−Tesla Reactor`, `−Conscript ×20`, `−Soviet Barracks`, `−Soviet
@@ -2118,7 +2512,7 @@ full-size render are for a human looking at a loading screen. In a run's tab the
 are tens of megabytes decoded into the one place that cannot spare them, so
 `src/companion.js` skips both while `__cdcSim.busy()`.
 
-#### Two clocks, and which one a report prints
+### Two clocks, and which one a report prints
 
 A match has two, and they are not the same number:
 
@@ -2135,7 +2529,7 @@ report offers **real time**, **game clock**, or **both** — printed `8:55
 `localStorage`. A match played at 15 ticks a second has one clock and is offered
 no choice.
 
-#### Export — and the same report on the site
+### Export — and the same report on the site
 
 **Export** writes the report on screen to a `.json` file. It is worth having
 because of what is above: a re-run is the only source of losses, kills and
