@@ -2047,8 +2047,9 @@ check(
 
 check(
   "the ore is walked on a slower clock than the shroud",
-  /RADAR_ORE_EVERY = Math\.round\(1000 \/ RADAR_TICK_MS\)/.test(companion) &&
-    /radarTicks % RADAR_ORE_EVERY === 0 \? sweepRadarOre\(\) : false/.test(tickBody),
+  /RADAR_ORE_MS = 1000/.test(companion) &&
+    /RADAR_SWEEP_MS = 300/.test(companion) &&
+    /const oreMoved = oreDue \? sweepRadarOre\(\) : false;/.test(tickBody),
   "reading it at the shroud's rate is getObjectsOnTile twenty thousand times a second to watch paint dry"
 );
 
@@ -2205,7 +2206,7 @@ const canvas = { width: 400, height: 300 };
  * every assertion below runs the path a default install runs -- the `null` case
  * is a state the panel really passes through and gets an assertion of its own.
  */
-function drawWith(objects, shroud, occupation = null, look = TUNE.normalise({})) {
+function drawWith(objects, shroud, occupation = null, look = TUNE.normalise({}), noParadropRules = false) {
   const api = loadUnits(g, shroud, mapFile);
   api.state.combatant = {
     player: me,
@@ -2215,10 +2216,19 @@ function drawWith(objects, shroud, occupation = null, look = TUNE.normalise({}))
       getWorld: () => ({ getAllObjects: () => objects }),
     },
   };
+  // The client's own name for the plane that drops paradrops. Always present,
+  // because every object here is named something else unless a test says
+  // otherwise -- so the mask's one exception is off by default and has to be
+  // asked for by name, which is what it is like in a match.
+  api.state.combatant.game.rules = noParadropRules
+    ? {}
+    : { general: { paradrop: { paradropPlane: PARADROP_PLANE } } };
   const rec = recorder();
   api.drawRadarUnits(rec.ctx, canvas, look, TUNE);
   return { fills: rec.fills, said: api.said, api };
 }
+
+const PARADROP_PLANE = "PDPLANE";
 
 const scouted = maskOf(mapFile, g, [[50, 50]]);
 
@@ -2381,6 +2391,111 @@ check(
   "a destroyed or unspawned object is skipped",
   drawn([techno({ isDestroyed: true }), techno({ isSpawned: false })]).length === 0,
   "both are states an object passes through while still in the world's list"
+);
+
+// --- rubble ------------------------------------------------------------------
+//
+// The one arm of the above that the client does NOT skip. `MinimapModel` paints
+// a destroyed building with `leaveRubble` black for the length of its death
+// animation, so a base coming apart shows as it happens instead of by pieces
+// silently vanishing.
+
+const rubble = (props) =>
+  techno({
+    isDestroyed: true,
+    isBuilding: () => true,
+    isInfantry: () => false,
+    rules: { leaveRubble: true },
+    ...props,
+  });
+
+const rubbleFills = drawn([rubble()]);
+check(
+  "a destroyed building that leaves rubble is drawn, in black",
+  rubbleFills.length === 1 && rubbleFills[0].colour === "#000000",
+  `drew ${rubbleFills.length} in ${rubbleFills[0] && rubbleFills[0].colour} — the client's own value, and it reads as a hole in the base, which is what it is`
+);
+
+check(
+  "but a destroyed building that leaves none is still gone",
+  drawn([rubble({ rules: {} })]).length === 0,
+  "the flag is the client's test, not the destruction"
+);
+
+const destroyedWall = drawn([rubble({ name: "CAFNCW", rules: { wall: true, leaveRubble: true } })]);
+check(
+  "and a destroyed wall keeps its wall colour",
+  destroyedWall.length === 1 && destroyedWall[0].colour === "#ffffff",
+  `drew ${destroyedWall.length} in ${destroyedWall[0] && destroyedWall[0].colour} — the wall branch comes first in the client's own order, so the rubble arm must not overtake it`
+);
+
+// That rubble carries no PICTOGRAM is asserted with the pictograms, below —
+// `markWith` is defined down there, and it is the helper that can see them.
+
+// --- the mask's one exception ------------------------------------------------
+//
+// The paradrop plane draws through unexplored ground, because the client's own
+// radar does: `MinimapModel` sets `aboveShroudTiles` from the tile's winning
+// object, and the plane wins unless another aircraft is standing on it.
+//
+// This is the only cell on the panel drawn on ground the player has not
+// scouted, so its BOUND is what these assertions are for. The scoring is
+// `4*isTechno + 2*isAircraft + Number(name !== paradropPlane)`: the plane is 6,
+// a ground techno 5, another aircraft 7. Reading the last term as a general
+// deprioritisation — "only where the tile is otherwise empty" — would hide the
+// plane in exactly the case it is most visible natively, so the arithmetic gets
+// an assertion per arm.
+
+const unscouted = { rx: 20, ry: 20, z: 0 };
+const plane = (props) =>
+  techno({
+    name: PARADROP_PLANE,
+    tile: unscouted,
+    isInfantry: () => false,
+    isAircraft: () => true,
+    ...props,
+  });
+
+check(
+  "the paradrop plane is drawn over ground that was never scouted",
+  drawn([plane()]).length === 1,
+  "the game's own radar shows a paradrop run crossing the dark, and a panel that hid it would be showing less than the game does"
+);
+
+check(
+  "but nothing else is, not even another aircraft",
+  drawn([techno({ tile: unscouted, isInfantry: () => false, isAircraft: () => true })]).length === 0,
+  "the client's exception is keyed on the winner being the paradrop plane BY NAME, so no other object inherits it — the mask holds for everything but the one name"
+);
+
+check(
+  "another aircraft on the same cell takes the exception away",
+  drawn([plane(), techno({ tile: unscouted, isInfantry: () => false, isAircraft: () => true })]).length === 0,
+  "4+2+1 = 7 beats the plane's 4+2+0 = 6, so the client's winner is the other aircraft and the tile goes back to black"
+);
+
+check(
+  "a ground unit on the same cell does not",
+  drawn([plane(), techno({ tile: unscouted })]).length === 1,
+  "4+0+1 = 5 loses to the plane's 6 — the tie-break term is between two things in the air, and reading it as a general deprioritisation would hide the plane exactly where it is most visible natively"
+);
+
+check(
+  "and an aircraft that would not be drawn at all takes nothing",
+  drawn([plane(), techno({ tile: unscouted, radarInvisible: true, isAircraft: () => true })]).length === 1,
+  "the client picks its winner from the objects that passed its admission test, so a radar-invisible one was never in the running"
+);
+
+check(
+  "no paradrop rules, no exception",
+  drawWith([plane()], scouted, null, TUNE.normalise({}), true).fills.length === 0,
+  "the name is the client's, and a client that does not publish it is a client whose rule we cannot claim to be following"
+);
+
+check(
+  "and the plane is still gated by everything else",
+  drawn([plane({ radarInvisible: true })]).length === 0,
+  "drawing through the shroud is one exception, not a licence — the admission test, the cloak and the disguise all still run first"
 );
 
 // --- footprints ----------------------------------------------------------------
@@ -2605,6 +2720,13 @@ check(
 );
 
 check(
+  "rubble carries no pictogram",
+  markWith([derrick({ isDestroyed: true, rules: { needsEngineer: true, leaveRubble: true } })], scouted)
+    .marks.length === 0,
+  "this layer walks the SAME list the blips do, so admitting destroyed buildings there put an `oil derrick here` mark on a corpse — the client has no glyph layer and so no rule to copy, and the honest answer is that the mark would be a lie"
+);
+
+check(
   "no mask means no marks",
   markWith([derrick({})], null).marks.length === 0,
   "fail closed, exactly as the blips do"
@@ -2781,7 +2903,7 @@ check(
 // compares the radar's arithmetic to itself.
 
 const VIEW_START = "  // --- the viewport rectangle ---";
-const VIEW_END = "  // --- the tick ---";
+const VIEW_END = "  // --- radar event pings ---";
 const viewFrom = companion.indexOf(VIEW_START);
 const viewTo = companion.indexOf(VIEW_END);
 if (viewFrom < 0 || viewTo < 0 || viewTo < viewFrom) {
@@ -2790,14 +2912,33 @@ if (viewFrom < 0 || viewTo < 0 || viewTo < viewFrom) {
 }
 const viewportBody = companion.slice(viewFrom, viewTo);
 
+// The same extent guard the unit window carries, and it is here because this
+// window went without one for long enough to prove the point. It used to run to
+// `// --- the tick ---`, which meant it silently contained the dials AND the
+// whole interaction section -- two hundred lines of code that twenty-odd
+// assertions were never written for and would happily have matched. The event
+// pings landing between the two headers is what finally made it fail: the
+// section's own comment says the words `radarCellVisible` and `radarShroud`
+// while explaining why it does not call them, and "the camera box is drawn over
+// ground nobody has scouted" went red on the prose.
+const viewportSections = [...viewportBody.matchAll(/^ {2}\/\/ --- (.+?) ---/gm)].map((m) => m[1]);
+check(
+  "the viewport window holds exactly the sections it is meant to",
+  viewportSections.join(" | ") === "the viewport rectangle",
+  "found: " + (viewportSections.join(" | ") || "no section headers at all")
+);
+
 function loadViewport(geo) {
-  const state = { combatant: null };
+  const said = [];
+  const state = { combatant: null, hud: null };
   const api = new Function(
     "state",
+    "note",
     "radarGeo",
-    viewportBody + "\n return { radarViewportRect, drawRadarViewport, RADAR_VIEWPORT_COLOUR };"
-  )(state, geo);
-  return { ...api, state };
+    viewportBody +
+      "\n return { radarViewportRect, drawRadarViewport, radarBorderColour, RADAR_VIEWPORT_COLOUR, RADAR_VIEWPORT_ALPHA };"
+  )(state, (message, level) => said.push({ message, level }), geo);
+  return { ...api, state, said };
 }
 
 /** The client's own viewport, as the probe read it off a live match. */
@@ -2980,12 +3121,13 @@ function strokePen() {
   return { ctx, strokes };
 }
 
-function strokeOn(pan, surface) {
+function strokeOn(pan, surface, hud) {
   const api = loadViewport(g);
   api.state.combatant = { worldScene: { cameraPan: { getPan: () => pan }, viewport: LIVE_VIEWPORT } };
+  if (hud !== undefined) api.state.hud = hud;
   const pen = strokePen();
   api.drawRadarViewport(pen.ctx, surface);
-  return pen.strokes;
+  return Object.assign(pen.strokes, { said: api.said, alpha: pen.ctx.globalAlpha });
 }
 
 const stroked = strokeOn(panForTile(50, 50, 0), pickSurface);
@@ -2993,6 +3135,56 @@ check(
   "the box is stroked once, in the annotation colour",
   stroked.length === 1 && stroked[0].style === loadViewport(g).RADAR_VIEWPORT_COLOUR,
   "a solid white box over a bright cliff reads as terrain, which is what this one must not be"
+);
+
+// --- and in the interface's own colour when there is an interface -----------
+//
+// The client hands `Hud#getTextColor()` to its own Minimap as the border colour
+// its viewport outline is drawn in. Taking the same value is what puts our
+// rectangle in the same interface as theirs.
+
+const soviet = strokeOn(panForTile(50, 50, 0), pickSurface, { getTextColor: () => "yellow" });
+check(
+  "the outline takes the side's own text colour",
+  soviet[0].style === "yellow",
+  `stroked ${soviet[0].style} — the client's own borderColor for a Soviet player, used verbatim rather than parsed and rebuilt`
+);
+
+const allied = strokeOn(panForTile(50, 50, 0), pickSurface, { getTextColor: () => "rgb(165,211,255)" });
+check(
+  "and it is used as the string the client gave, whatever shape it is in",
+  allied[0].style === "rgb(165,211,255)",
+  "an rgb() triple and a bare colour word are both CSS and neither is a colour model — parsing one would be a second way to be wrong about it"
+);
+
+check(
+  "the fade moved off the constant and onto the context",
+  soviet.alpha === loadViewport(g).RADAR_VIEWPORT_ALPHA,
+  `globalAlpha ${soviet.alpha} — the alpha used to live inside the white constant, and a client string cannot carry it, so it has to be applied separately or the box goes solid`
+);
+
+check(
+  "out of a match it is white again",
+  strokeOn(panForTile(50, 50, 0), pickSurface, null)[0].style === loadViewport(g).RADAR_VIEWPORT_COLOUR,
+  "the client nulls its Hud on destroy, and there is no house whose colour the box could be — that is correct rather than a fallback"
+);
+
+const brokenHud = strokeOn(panForTile(50, 50, 0), pickSurface, {
+  getTextColor: () => {
+    throw new Error("moved");
+  },
+});
+check(
+  "a Hud that throws costs the colour and not the box, and says so",
+  brokenHud[0].style === loadViewport(g).RADAR_VIEWPORT_COLOUR &&
+    brokenHud.said.some((s) => s.level === "warn"),
+  "the rectangle is the useful half; losing it over a theme would be the wrong trade, and losing it silently the wrong way to make it"
+);
+
+check(
+  "and no client colour is constructed to do any of it",
+  !/new\s+Color|fromRgb|fromHsv/.test(viewportBody),
+  "a batched voxel builder resolves palettes by content hash and throws inside the render loop"
 );
 
 check(
@@ -3060,7 +3252,7 @@ const interactBody = companion.slice(interactFrom, interactTo);
 const interactSections = [...interactBody.matchAll(/^ {2}\/\/ --- (.+?) ---/gm)].map((m) => m[1]);
 check(
   "the interaction window holds exactly the sections it is meant to",
-  interactSections.join(" | ") === "interaction",
+  interactSections.join(" | ") === "interaction | hovering",
   "found: " + (interactSections.join(" | ") || "no section headers at all")
 );
 
@@ -3954,6 +4146,288 @@ check(
   "added and removed in the same function, or it leaks past the panel that wanted it"
 );
 
+// --- hovering, and what the cursor says a press will do ----------------------
+//
+// Cut with `indexOf` on two function names rather than by moving a section
+// boundary: the interaction window's assertions were written for the press
+// path, and widening or narrowing it to reach these would change what those
+// cover without anybody noticing.
+//
+// The claim under everything here is that the client's own three handlers are
+// CALLED rather than reimplemented — so most of these assert the calls, their
+// arguments, and the one flag whose staleness would reach an order.
+
+const HOVER_START = "  let radarHovering = false;";
+const HOVER_END = "  function radarClickThrough(";
+const hoverFrom = companion.indexOf(HOVER_START);
+const hoverTo = companion.indexOf(HOVER_END);
+if (hoverFrom < 0 || hoverTo < 0 || hoverTo < hoverFrom) {
+  console.error("could not find the radar hover path in companion.js — this check is out of date");
+  process.exit(1);
+}
+const hoverBody = companion.slice(hoverFrom, hoverTo);
+
+function loadHover(opts = {}) {
+  const said = [];
+  const calls = [];
+  const units = loadUnits(g, opts.shroud === undefined ? scouted : opts.shroud, mapFile);
+  const world = {
+    isEnabled: () => !opts.disabled,
+    handleMinimapMouseOver: () => calls.push({ what: "over" }),
+    handleMinimapMouseMove: (tile) => calls.push({ what: "move", tile }),
+    handleMinimapMouseOut: () => calls.push({ what: "out" }),
+    getCurrentHover: () => opts.hover || null,
+  };
+  if (opts.noHoverPath) delete world.handleMinimapMouseMove;
+  if (opts.throws) {
+    world.handleMinimapMouseMove = () => {
+      throw new Error("moved");
+    };
+  }
+  const tiles = new Map();
+  const state = {
+    combatant: opts.noMatch
+      ? null
+      : {
+          player: me,
+          worldInteraction: world,
+          game: {
+            alliances,
+            map: {
+              tiles: {
+                getByMapCoords: (rx, ry) => {
+                  const key = `${rx},${ry}`;
+                  if (!tiles.has(key)) tiles.set(key, { rx, ry, z: 0 });
+                  return tiles.get(key);
+                },
+              },
+              getObjectsOnTile: () => opts.onTile || [],
+            },
+          },
+          strings: { get: (key) => `name:${key}` },
+        },
+  };
+  const api = new Function(
+    "state",
+    "note",
+    "radarSayOnce",
+    "radarTileAt",
+    "radarGeo",
+    "radarShroud",
+    "radarMapFile",
+    "radarCellVisible",
+    "radarBlipColour",
+    "radarSharedIntel",
+    "displayName",
+    hoverBody + "\n return { radarHoverEnter, radarHoverLeave, radarHoverName, radarHoverSubject };"
+  )(
+    state,
+    (message, level) => said.push({ message, level }),
+    (message, level) => said.push({ message, level }),
+    (cell) => {
+      const map = state.combatant && state.combatant.game.map;
+      return map ? map.tiles.getByMapCoords(cell.rx, cell.ry) : null;
+    },
+    opts.noGeo ? null : g,
+    opts.shroud === undefined ? scouted : opts.shroud,
+    () => (opts.otherMap ? { other: true } : mapFile),
+    units.radarCellVisible,
+    units.radarBlipColour,
+    units.radarSharedIntel,
+    (rules, fallback) => (rules && rules.uiName ? `name:${rules.uiName}` : fallback)
+  );
+  return { ...api, state, said, calls, world };
+}
+
+const HOVER_CELL = { rx: 50, ry: 50, z: 0 };
+const DARK_CELL = { rx: 20, ry: 20, z: 0 };
+
+const hoverMoved = loadHover();
+hoverMoved.radarHoverEnter(HOVER_CELL);
+hoverMoved.radarHoverEnter(HOVER_CELL);
+hoverMoved.radarHoverEnter({ rx: 51, ry: 50, z: 0 });
+check(
+  "the client is told the cursor arrived once and moved every time",
+  hoverMoved.calls.filter((c) => c.what === "over").length === 1 &&
+    hoverMoved.calls.filter((c) => c.what === "move").length === 3,
+  `${hoverMoved.calls.filter((c) => c.what === "over").length} over and ${hoverMoved.calls.filter((c) => c.what === "move").length} move — the client sets isMinimapHover on the first and reads the tile on every one`
+);
+
+check(
+  "and the tile handed over is the client's own object",
+  hoverMoved.calls[1].tile === hoverMoved.state.combatant.game.map.tiles.getByMapCoords(50, 50),
+  "by reference, not by value — the same discipline the beacon needs, since the client compares tiles by identity"
+);
+
+const hoverLeft = loadHover();
+hoverLeft.radarHoverEnter(HOVER_CELL);
+hoverLeft.radarHoverLeave();
+hoverLeft.radarHoverLeave();
+check(
+  "leaving is said once however often it is called",
+  hoverLeft.calls.filter((c) => c.what === "out").length === 1,
+  `${hoverLeft.calls.filter((c) => c.what === "out").length} mouse-outs — the readout calls this on every move that is off the picture`
+);
+
+const neverIn = loadHover();
+neverIn.radarHoverLeave();
+check(
+  "and not at all if the cursor was never on it",
+  neverIn.calls.length === 0,
+  "a mouse-out the client never had a mouse-in for would clear a hover somebody else owns"
+);
+
+const hoverDisabled = loadHover({ disabled: true });
+hoverDisabled.radarHoverEnter(HOVER_CELL);
+check(
+  "a client that is not taking input is not told anything",
+  hoverDisabled.calls.length === 0,
+  "isEnabled() is false once the match is over, and the press path already refuses on it"
+);
+
+const hoverNoPath = loadHover({ noHoverPath: true });
+hoverNoPath.radarHoverEnter(HOVER_CELL);
+check(
+  "a moved hover path costs the feature and says so once",
+  hoverNoPath.calls.length === 0 && hoverNoPath.said.some((s) => s.level === "warn"),
+  "the fallback is emphatically NOT to hand-roll getHover plus updateDefaultAction — that would be a second writer of isMinimapHover, and two of those is how a stale tile reaches an order"
+);
+
+const hoverThrew = loadHover({ throws: true });
+hoverThrew.radarHoverEnter(HOVER_CELL);
+check(
+  "and a hover that throws leaves the client with the mouse out, not stuck in",
+  hoverThrew.calls.some((c) => c.what === "out") && hoverThrew.said.some((s) => s.level === "warn"),
+  "the flag is the dangerous half: left standing it hands a stale minimap tile to whatever the next click executes"
+);
+
+// --- the label, and the three gates on it ---
+
+const tank = techno({
+  name: "HTNK",
+  rules: { uiName: "Tank" },
+  isInfantry: () => false,
+  isVehicle: () => true,
+});
+const ore = { name: "GOLD01", rules: { uiName: "Ore" }, isTechno: () => false };
+
+const hoverNamed = loadHover({ hover: { gameObject: tank } });
+check(
+  "the bar names what the client found",
+  hoverNamed.radarHoverName(HOVER_CELL, { gameObject: tank }) === "name:Tank",
+  `got ${hoverNamed.radarHoverName(HOVER_CELL, { gameObject: tank })}`
+);
+
+const unscoutedName = loadHover();
+check(
+  "and names nothing on ground the mask has not revealed, even when the client answers",
+  unscoutedName.radarHoverName(DARK_CELL, { gameObject: tank }) === "",
+  "this is the maphack assertion: the client's getHover refuses a shrouded tile, and our own mask refuses independently of it, so either one holding is enough"
+);
+
+const wrongMap = loadHover({ otherMap: true });
+check(
+  "nor when the mask belongs to a different map",
+  wrongMap.radarHoverName(HOVER_CELL, { gameObject: tank }) === "",
+  "another map's bits are a different diamond, and reading them would be answering from the wrong picture"
+);
+
+const cloaked = loadHover({
+  hover: {
+    gameObject: {
+      name: "SUB",
+      rules: { uiName: "Sub" },
+      owner: foe,
+      isTechno: () => true,
+      isInfantry: () => false,
+      isVehicle: () => false,
+      cloakableTrait: { isCloaked: () => true },
+    },
+  },
+});
+check(
+  "a cloaked unit is not named either",
+  cloaked.radarHoverName(HOVER_CELL, cloaked.world.getCurrentHover()) === "",
+  "the label runs the blips' own colour test, so every rule already audited there — cloak, disguise, radar-invisible — carries over instead of being restated"
+);
+
+const overOre = loadHover({ onTile: [ore, tank] });
+check(
+  "a techno on the tile wins the label from the client's own answer",
+  overOre.radarHoverName(HOVER_CELL, { gameObject: ore }) === "name:Tank",
+  "getHover sorts ASCENDING on isTechno and takes the first, so on a tile holding ore and a tank it answers the ore — a readout naming the ore under a tank answers a question nobody asked"
+);
+
+check(
+  "and the divergence is the label's alone",
+  !/getCurrentHover|handleMinimapMouseMove/.test(
+    hoverBody.slice(hoverBody.indexOf("function radarHoverSubject("))
+  ),
+  "the cursor and the click keep the client's answer untouched — they are its business, and a second opinion there would drift from the order that actually gets sent"
+);
+
+// --- the wiring, which is not in this slice ---
+
+const readoutBody = between("function syncRadarReadout() {", "\n  }");
+check(
+  "the readout is what drives the hover, and off the picture is a mouse-out",
+  /radarHoverEnter\(cell\)/.test(readoutBody) && /radarHoverLeave\(\), null/.test(readoutBody),
+  "a blank readout is not enough: a hover flag that simply stopped being refreshed is the stale one"
+);
+
+check(
+  "and every way the panel can stop showing a picture ends the hover",
+  // The CONDITION, not just the call: `if (false) radarHoverLeave();` matched a
+  // bare /radarHoverLeave\(\);/ and survived the mutation pass, which made the
+  // assertion a check that the words were present rather than that the hover
+  // ends.
+  /if \(!radarVisible\) radarHoverLeave\(\);/.test(between("function toggleRadar(force) {", "\n  }")) &&
+    /radarGeo = null;\s*[\s\S]{0,400}?radarHoverLeave\(\);/.test(
+      between("function renderRadar() {", "\n  }")
+    ),
+  "closing the panel and refusing to draw are both hover-enders the cursor moving would never report"
+);
+
+const radarCursorBody = between("function syncRadarCursor() {", "\n  }");
+check(
+  "the drawn cursor takes the type the client just set",
+  /state.pointerUi/.test(radarCursorBody) && /styleCursor\(type\)/.test(radarCursorBody),
+  "updateDefaultAction ends in setPointerType, so the client has already decided what the click will do — reading it back is the whole feature"
+);
+
+const moveBody = between("function onOverlayMouseMove() {", "\n  }");
+check(
+  "and it is dressed after the element exists, not before",
+  moveBody.indexOf("syncRadarCursor();") > moveBody.indexOf("drawCursor(ourBox(target) ? at : null);"),
+  "drawCursor is what CREATES the element. Dressing it from inside syncRadarReadout — where the hover is resolved — meant the first move onto the picture found no element yet, so a quick in-and-out never showed what the click would have done. Found in the browser tier, which is the only place a first move exists"
+);
+
+check(
+  "and only under a lock, which is the only time we draw one at all",
+  /mouseCaptured\(\)/.test(radarCursorBody),
+  "with a free mouse the browser draws the real cursor and the canvas's own crosshair applies"
+);
+
+const styleBody = between("function styleCursor(type) {", "\n  }");
+check(
+  "the client's own centring rule is copied rather than chosen",
+  /type > CLIENT_POINTER_MINI/.test(styleBody) && /CLIENT_POINTER_MINI = 1/.test(companion),
+  "Pointer#updateSpritePosition centres the sprite only above Mini — a cursor whose hotspot is half a sprite from the client's points at a different tile than the one it is about to order"
+);
+
+check(
+  "and a pointer whose art could not be read falls back to our own arrow",
+  /if \(!url\)/.test(styleBody) && /removeAttribute\("data-pointer"\)/.test(styleBody),
+  "Yuri's Revenge names the file mouse.sha, so asking for mouse.shp and falling back beats guessing which engine is running"
+);
+
+check(
+  "the pointer frame is taken one at a time, not by converting the whole file",
+  /hq\.frameCanvas\(shp, type, palette\)/.test(companion) &&
+    !/convertShpToCanvas\(shp, palette\)[\s\S]{0,200}mouse/.test(companion),
+  "convertShpToCanvas lays every frame out in a row and a pointer file has hundreds — the intermediate canvas would be tens of thousands of pixels wide to keep one frame of forty"
+);
+
 // --- the paint order ------------------------------------------------------------
 
 const iconsCallAt = paintFull.indexOf("drawRadarIcons(ctx, canvas, window.__cdcGlyphs);");
@@ -3979,10 +4453,455 @@ check(
 
 check(
   "and the units tick is the outer one",
-  /radarTicks % RADAR_SWEEP_EVERY === 0 \? sweepRadarShroud\(\) : false/.test(tickBody) &&
-    /window\.setTimeout\(radarSweepTick, RADAR_TICK_MS\)/.test(tickBody),
+  /const moved = sweepDue \? sweepRadarShroud\(\) : false;/.test(tickBody) &&
+    /radarSweepDue = now \+ RADAR_SWEEP_MS;/.test(tickBody),
   "one pass over every cell of the map cannot run at the rate a blip has to move"
 );
+
+check(
+  "the sweeps are owed on a clock, never on a count of ticks",
+  !/radarTicks/.test(companion) &&
+    !/RADAR_SWEEP_EVERY|RADAR_ORE_EVERY/.test(companion) &&
+    /const now = performance\.now\(\);/.test(tickBody),
+  "a divisor is only a cadence while the tick's own interval never changes, and a live ping changes it -- a surviving `% N` would sweep the whole map every 99ms instead of 300"
+);
+
+// --- radar event pings -------------------------------------------------------
+//
+// Executed rather than pattern-matched, because almost everything this layer
+// does is arithmetic with a right answer: an animation law copied out of the
+// client, a colour table with six arms, an ageing rule on the engine's clock,
+// and a size translation between two different projections of the same map. A
+// regex can see that the numbers are mentioned. It cannot see that they are
+// combined the way `MinimapPing#update` combines them.
+//
+// The one claim that is NOT arithmetic is the one the whole layer is admissible
+// under -- that a ping can only ever come from the local player's own trait --
+// and it is asserted twice over: executed, against a stub game whose OTHER
+// player is carrying events at the same time, and textually, because the shape
+// of the read is what makes the guarantee structural.
+
+const PING_START = "  // --- radar event pings ---";
+const PING_END = "  // --- the dials ---";
+const pingFrom = companion.indexOf(PING_START);
+const pingTo = companion.indexOf(PING_END);
+if (pingFrom < 0 || pingTo < 0 || pingTo < pingFrom) {
+  console.error("could not find the radar event pings in companion.js — this check is out of date");
+  process.exit(1);
+}
+const pingBody = companion.slice(pingFrom, pingTo);
+
+// The window with its comments taken out, for the assertions that are about
+// what the layer DOES rather than what it says.
+//
+// Written because two of them went red on their own justification: this
+// section's header explains at length why it does not subscribe to
+// `EventType.RadarEvent`, and `!/EventType/.test(...)` cannot tell an
+// explanation from a call. A prose-sensitive assertion is worse than none --
+// it is one a later editor makes green by deleting the paragraph that says why
+// the rule exists.
+const pingCode = pingBody.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+const pingSections = [...pingBody.matchAll(/^ {2}\/\/ --- (.+?) ---/gm)].map((m) => m[1]);
+check(
+  "the ping window holds exactly the section it is meant to",
+  pingSections.join(" | ") === "radar event pings",
+  "found: " + (pingSections.join(" | ") || "no section headers at all")
+);
+
+function loadPings(geo) {
+  const said = [];
+  const state = { combatant: null, minimapObj: null };
+  const api = new Function(
+    "state",
+    "note",
+    "radarGeo",
+    pingBody +
+      "\n return { radarEventRules, radarEventLife, radarEventSpan, radarEventList, syncRadarEvents," +
+      " radarEventShape, radarEventMix, radarEventColours, drawRadarEventPings," +
+      " RADAR_EVENT_START_SCALE, pings: () => radarEventPings };"
+  )(state, (message, level) => said.push({ message, level }), geo);
+  return { ...api, state, said };
+}
+
+// Deliberately not the shipped rules.ini numbers: every one of them is read
+// through, so a law that quietly hardcoded one would pass against the real
+// values and fail here.
+const PING_RULES = {
+  eventMinRadius: 4,
+  eventSpeed: 0.5,
+  eventRotationSpeed: 0.02,
+  eventColorSpeed: 0.05,
+  // The client's own getter THROWS for a type its rules have no entry for --
+  // which is why one of the arms below is a type this table is short of.
+  getEventVisibilityDuration: (type) => {
+    const table = [10, 20, 30, 60, 50, 40];
+    if (type > table.length - 1) throw new RangeError("no visibility duration for type " + type);
+    return table[type];
+  },
+};
+
+const ev = (type, rx, ry, startTick) => ({ type, startTick, tile: { rx, ry, z: 0 } });
+
+/**
+ * A stub match with a radar trait on it.
+ *
+ * `otherEvents` go on a SECOND player hanging off the same game object, which is
+ * the whole point of the fixture: the client's own Minimap would see those on
+ * the event bus and has to filter them out by hand, and this layer must have no
+ * way to reach them at all.
+ */
+function pingWorld(opts = {}) {
+  const api = loadPings(g);
+  const mine = { radarTrait: { activeEvents: opts.events === undefined ? [] : opts.events } };
+  const theirs = { radarTrait: { activeEvents: opts.otherEvents || [] } };
+  if (!opts.noMatch) {
+    api.state.combatant = {
+      player: opts.noTrait ? {} : mine,
+      game: {
+        currentTick: opts.tick === undefined ? 0 : opts.tick,
+        rules: opts.noRules ? {} : { general: { radar: opts.rules || PING_RULES } },
+        players: [mine, theirs],
+        events: { subscribe: () => check("the ping layer never subscribes", false, "it reached the event bus") },
+      },
+    };
+  }
+  api.state.minimapObj = opts.noMinimap
+    ? null
+    : { minimapRenderer: { canvasSize: { width: 256 }, dxySize: { width: 512 } } };
+  return api;
+}
+
+// --- what it may see ---
+
+const ownOnly = pingWorld({
+  events: [ev(3, 10, 20, 0), ev(4, 30, 40, 0)],
+  otherEvents: [ev(3, 1, 1, 0), ev(3, 2, 2, 0), ev(3, 5, 5, 0)],
+});
+ownOnly.syncRadarEvents(0);
+check(
+  "only the local player's own events become pings",
+  ownOnly.pings().length === 2,
+  `${ownOnly.pings().length} pings from two of our own events and three of somebody else's on the same game — the client's Minimap subscribes to a bus carrying all five and drops three by hand; reading our own trait means there is no hand to get wrong`
+);
+
+check(
+  "and it reaches the events through the trait rather than the bus",
+  !/\.subscribe\(/.test(pingCode) && !/EventType/.test(pingCode) && /player\.radarTrait/.test(pingCode),
+  "a filter that is a line of code can be deleted; a filter that is the shape of the read cannot"
+);
+
+check(
+  "the ping layer constructs no client colour",
+  !/new\s+Color|fromRgb|fromHsv/.test(pingCode),
+  "a batched voxel builder resolves palettes by content hash and throws inside the render loop"
+);
+
+check(
+  "and opens no loop of its own",
+  !/requestAnimationFrame|setInterval|setTimeout/.test(pingCode),
+  "one timer is the thing that cannot be left running after the panel closes, and this layer rides the one that already exists"
+);
+
+// --- every way it can refuse ---
+
+const refusals = [
+  ["no combatant", { noMatch: true }],
+  ["no radar rules", { noRules: true }],
+  ["no radarTrait", { noTrait: true }],
+  ["activeEvents is not an array", { events: "not an array" }],
+  ["no game tick", { tick: null }],
+];
+for (const [name, opts] of refusals) {
+  const world = pingWorld({ ...opts, events: opts.events === undefined ? [ev(3, 10, 20, 0)] : opts.events });
+  world.syncRadarEvents(0);
+  check(
+    `fails closed with ${name}`,
+    world.pings().length === 0 && world.said.some((s) => s.level === "warn"),
+    `${world.pings().length} pings and ${world.said.length} things said — an unreadable client is a reason to draw nothing and say so, never to guess`
+  );
+}
+
+const repeated = pingWorld({ noMatch: true });
+for (let i = 0; i < 10; i++) repeated.syncRadarEvents(i * 100);
+check(
+  "and says it once rather than ten times a second",
+  repeated.said.length === 1,
+  `said ${repeated.said.length} times over ten ticks — a warning repeated at the tick rate is a warning nobody reads`
+);
+
+const unknownType = pingWorld({ events: [ev(9, 10, 20, 0)] });
+unknownType.syncRadarEvents(0);
+check(
+  "a type the client publishes no duration for is dropped, not drawn forever",
+  unknownType.pings().length === 0 && /no duration/.test(unknownType.said.map((s) => s.message).join(" ")),
+  "getEventVisibilityDuration throws a RangeError for it, and a ping that cannot be aged would sit on the picture for the rest of the match"
+);
+
+// The other half of the same refusal, and it exists because a mutation lived
+// through the arm above. `getEventVisibilityDuration` THROWS for a type it has
+// no row for, so that arm never reaches the line that checks the RETURNED
+// value -- and replacing that line with a hardcoded lifetime kept the whole
+// suite green. A client that answers `undefined`, `0` or a string is a
+// different failure from one that throws, and inventing a duration for it
+// would put a ping on the picture that no rule anywhere asked for.
+for (const [name, answer] of [
+  ["undefined", undefined],
+  ["zero", 0],
+  ["a string", "60"],
+]) {
+  const odd = pingWorld({
+    events: [ev(3, 10, 20, 0)],
+    rules: { ...PING_RULES, getEventVisibilityDuration: () => answer },
+  });
+  odd.syncRadarEvents(0);
+  check(
+    `a duration of ${name} is a type dropped, not a lifetime guessed`,
+    odd.pings().length === 0,
+    `${odd.pings().length} pings — the only honest answers are the client's own number and nothing at all`
+  );
+}
+
+const noMinimap = pingWorld({ events: [ev(3, 10, 20, 0)], noMinimap: true });
+noMinimap.syncRadarEvents(0);
+check(
+  "an unreadable client minimap costs the ping its size and says so",
+  noMinimap.said.some((s) => s.level === "warn" && /sized/.test(s.message)),
+  "eventMinRadius is in the client's own canvas pixels, so without that canvas there is no honest size to draw — and no constant worth inventing"
+);
+
+// --- ageing, on the engine's clock ---
+
+const ageing = pingWorld({ events: [ev(3, 10, 20, 0)], tick: 0 });
+ageing.syncRadarEvents(0);
+const bornAt = ageing.pings().length;
+ageing.state.combatant.game.currentTick = 59;
+ageing.syncRadarEvents(100);
+const justAlive = ageing.pings().length;
+ageing.state.combatant.game.currentTick = 60;
+ageing.syncRadarEvents(200);
+const expired = ageing.pings().length;
+ageing.syncRadarEvents(300);
+const stayedDead = ageing.pings().length;
+check(
+  "a ping lives exactly its visibility duration in engine ticks",
+  bornAt === 1 && justAlive === 1 && expired === 0,
+  `born ${bornAt}, alive at tick 59 ${justAlive}, at tick 60 ${expired} — type 3's duration is 60, and the trait itself prunes only when a NEW event is created, so nothing else would ever take it off the picture`
+);
+
+check(
+  "and does not come back while the trait is still carrying the entry",
+  stayedDead === 0,
+  "the entry outlives the ping by design; a seen-index pruned by age instead of by presence would respawn it on the very next poll"
+);
+
+ageing.state.combatant.player.radarTrait.activeEvents.push(ev(3, 10, 20, 60));
+ageing.syncRadarEvents(400);
+check(
+  "but a fresh event on the same tile is a fresh ping",
+  ageing.pings().length === 1,
+  "the key is type, start tick and tile together — a second attack on the same building is a second warning"
+);
+
+const polled = pingWorld({ events: [ev(3, 10, 20, 0)] });
+for (let i = 0; i < 20; i++) polled.syncRadarEvents(i * 33);
+check(
+  "twenty polls of one unchanged entry are one ping",
+  polled.pings().length === 1,
+  `${polled.pings().length} pings — polling is what makes the local-player filter structural, and this is the cost it has to not have`
+);
+
+// --- the animation law, straight out of MinimapPing#update ---
+
+const shapeAt = (frames, ping = { seenAt: 0 }) =>
+  loadPings(g).radarEventShape(ping, (frames / 60) * 1000, PING_RULES);
+
+const start = shapeAt(0);
+check(
+  "a ping starts at fifteen times its size, square on",
+  start.scale === 15 && start.angle === 0 && start.phase === 0,
+  `scale ${start.scale}, angle ${start.angle}, phase ${start.phase}`
+);
+
+// eventSpeed / eventMinRadius = 0.125 a frame, so 15 -> 1 takes 112 frames.
+const mid = shapeAt(100);
+check(
+  "it shrinks by eventSpeed over eventMinRadius each frame",
+  Math.abs(mid.scale - (15 - 0.125 * 100)) < 1e-9,
+  `scale ${mid.scale} at 100 frames — the client subtracts this per update, and computing it from elapsed time is the same line only while the law stays linear`
+);
+
+check(
+  "and turns freely while it is still shrinking",
+  Math.abs(mid.angle - 0.02 * 100) < 1e-9,
+  `angle ${mid.angle} — no snap applies until the shrinking stops`
+);
+
+const settled = shapeAt(200);
+check(
+  "it floors at scale one rather than inverting",
+  settled.scale === 1,
+  `scale ${settled.scale} at 200 frames — Math.max(1, ...), so a ping that outlives its shrink sits still instead of turning inside out`
+);
+
+check(
+  "and once settled the angle is a quarter turn and stops there",
+  Math.abs(settled.angle - Math.PI) < 1e-9,
+  `angle ${settled.angle}, wanted ${Math.PI} — the client snaps DOWN to the multiple below, every frame, so each frame's advance is taken straight back and the square sits square`
+);
+
+const phases = [0, 10, 20, 30, 40].map((f) => Number(shapeAt(f).phase.toFixed(6)));
+check(
+  "the colour swings as a triangle wave of period two over eventColorSpeed",
+  phases.join(",") === "0,0.5,1,0.5,0",
+  `phases at 0,10,20,30,40 frames: ${phases.join(",")} — a sawtooth would jump from 1 back to 0 and the ping would blink instead of breathing`
+);
+
+// --- the colour table, every arm of it ---
+
+const colourApi = loadPings(g);
+const TABLE = [
+  [5, "#ffff00", "#848400"],
+  [1, "#00ffff", "#008484"],
+  [0, "#ff00ff", "#840084"],
+  [2, "#ff00ff", "#840084"],
+  [3, "#ff00ff", "#840084"],
+  [4, "#ff00ff", "#840084"],
+];
+for (const [type, high, low] of TABLE) {
+  const at0 = colourApi.radarEventColours(type, 0);
+  const at1 = colourApi.radarEventColours(type, 1);
+  check(
+    `event type ${type} swings between ${high} and ${low}`,
+    at0.a === high && at0.b === low && at1.a === low && at1.b === high,
+    `got ${at0.a}/${at0.b} at the start and ${at1.a}/${at1.b} at the turn — four of the six types are absent from the client's table and take the fallback, which is four claims and not one`
+  );
+}
+
+const meeting = colourApi.radarEventColours(5, 0.5);
+check(
+  "and meets in the middle at the turn",
+  meeting.a === meeting.b,
+  `${meeting.a} against ${meeting.b} — the client lerps each colour toward the other by the same factor, so halfway they are the same colour`
+);
+
+// --- where it lands on the canvas ---
+
+function pingPen() {
+  const segs = [];
+  let style = null;
+  let width = 0;
+  let from = null;
+  let to = null;
+  const ctx = {
+    save() {},
+    restore() {},
+    set lineWidth(v) {
+      width = v;
+    },
+    get lineWidth() {
+      return width;
+    },
+    set strokeStyle(v) {
+      style = v;
+    },
+    get strokeStyle() {
+      return style;
+    },
+    createLinearGradient(x0, y0, x1, y1) {
+      const stops = [];
+      return { at: { x0, y0, x1, y1 }, stops, addColorStop: (o, c) => stops.push({ o, c }) };
+    },
+    beginPath() {
+      from = to = null;
+    },
+    moveTo(x, y) {
+      from = { x, y };
+    },
+    lineTo(x, y) {
+      to = { x, y };
+    },
+    stroke() {
+      segs.push({ from, to, style, width });
+    },
+  };
+  return { ctx, segs };
+}
+
+const PING_SURFACE = { width: PICK_W, height: PICK_H };
+const pingCell = { rx: 40, ry: 30, z: 0 };
+const pingShown = pingWorld({ events: [ev(3, pingCell.rx, pingCell.ry, 0)] });
+pingShown.syncRadarEvents(0);
+const pen = pingPen();
+pingShown.drawRadarEventPings(pen.ctx, PING_SURFACE, 0);
+
+check(
+  "a ping is four stroked sides",
+  pen.segs.length === 4,
+  `${pen.segs.length} segments — the client's geometry is four line segments with alternating vertex colours, not a rect`
+);
+
+// The centre, computed here the way drawRadarUnits computes a blip's, so the
+// claim "the same path" is measured rather than believed.
+const pingSx = PING_SURFACE.width / g.cropWidth;
+const pingSy = PING_SURFACE.height / g.cropHeight;
+const pingAt = g.cellAt(pingCell.rx, pingCell.ry, pingCell.z);
+const wantCx = (pingAt.x - g.view.x) * pingSx + (g.block.width * pingSx) / 2;
+const wantCy = (pingAt.y - g.view.y) * pingSy + (g.block.height * pingSy) / 2;
+const gotCx = pen.segs.reduce((sum, s) => sum + s.from.x, 0) / pen.segs.length;
+const gotCy = pen.segs.reduce((sum, s) => sum + s.from.y, 0) / pen.segs.length;
+check(
+  "and it is centred on the same pixel a blip on that cell would be",
+  Math.abs(gotCx - wantCx) < 1e-9 && Math.abs(gotCy - wantCy) < 1e-9,
+  `centre ${gotCx.toFixed(3)},${gotCy.toFixed(3)} against the blip's ${wantCx.toFixed(3)},${wantCy.toFixed(3)} — a marker pointing at a different pixel than the blip on the same tile is worse than no marker`
+);
+
+const spanX = Math.max(...pen.segs.map((s) => s.from.x)) - Math.min(...pen.segs.map((s) => s.from.x));
+const spanY = Math.max(...pen.segs.map((s) => s.from.y)) - Math.min(...pen.segs.map((s) => s.from.y));
+check(
+  "the square in dxy is drawn twice as wide as it is tall",
+  Math.abs(spanX / spanY - (g.block.width * pingSx) / (g.block.height * pingSy)) < 1e-9,
+  `${spanX.toFixed(2)} by ${spanY.toFixed(2)} — one dx is half a cell wide and one dy half a cell tall, so bracketing the same TILES as the native ping means not being a screen square here`
+);
+
+// eventMinRadius 4 * dxySize.width 512 / canvasSize.width 256 = 8 dxy at scale
+// 1, and the ping is born at scale 15.
+check(
+  "and its size is eventMinRadius taken back through the client's own canvas",
+  Math.abs(spanX - ((4 * 512) / 256) * 15 * (g.block.width / 2) * pingSx) < 1e-9,
+  `${spanX.toFixed(3)} across — eventMinRadius is in the client's minimap pixels, so it means nothing here until dxySize and canvasSize take it back into map space`
+);
+
+const pingTiny = pingWorld({ events: [ev(3, pingCell.rx, pingCell.ry, 0)] });
+pingTiny.syncRadarEvents(0);
+const tinyPen = pingPen();
+// Far past the shrink, on a panel small enough that the honest size is under a
+// pixel: the floor is what keeps the warning visible.
+pingTiny.drawRadarEventPings(tinyPen.ctx, { width: 40, height: 20 }, (400 / 60) * 1000);
+const tinyY =
+  Math.max(...tinyPen.segs.map((s) => s.from.y)) - Math.min(...tinyPen.segs.map((s) => s.from.y));
+check(
+  "a settled ping on a tiny panel is still a few pixels across",
+  tinyY >= 3 - 1e-9,
+  `${tinyY.toFixed(3)}px tall — the floor is on the drawn size and applied after the scale, like the blip's, because a warning too small to see is not a warning`
+);
+
+check(
+  "the pings go on after the cover and after the camera box",
+  paintFull.indexOf("drawRadarEventPings(") > paintFull.indexOf("buildRadarCover(") &&
+    paintFull.indexOf("drawRadarEventPings(") > paintFull.indexOf("drawRadarViewport(ctx, canvas);"),
+  "an event's tile may be unexplored by construction — EnemyObjectSensed fires when a RevealToAll object spawns — so a ping under the cover is a warning the player never sees"
+);
+
+check(
+  "and the layer asks the mask nothing at all",
+  !/radarCellVisible\(|radarShroud\./.test(pingCode),
+  "it is the second of exactly two ungated layers, and it is ungated because it states a coordinate the client has already handed the local player and nothing whatever about the cell"
+);
+
+// What a live ping does to the tick is asserted with the rest of the tick, at
+// the bottom of this file — `runTicks` is defined down there, beside the flip
+// assertions it was written for.
 
 // --- the credits in the bar --------------------------------------------------
 //
@@ -4074,6 +4993,51 @@ check(
   "and the cursor stacks above the panel it is drawn over",
   zCursor > zRadar,
   `a cursor under the box it exists to be seen over is invisible — cursor ${zCursor} vs radar ${zRadar}`
+);
+
+// --- and what "dark" looks like ----------------------------------------------
+//
+// The gate itself is asserted below and is untouchable. This is only about the
+// panel saying which KIND of nothing it is showing: the client covers its own
+// minimap with an animation at this moment, so a panel that merely went blank
+// alongside it read as broken rather than as a system going down.
+
+const renderBody = between("function renderRadar() {", "\n  }");
+
+check(
+  "the offline refusal is the one that marks the panel dark",
+  /const dark = reason \? "" : radarOffline\(\);/.test(renderBody) &&
+    /radarEl\.classList\.toggle\("cdc-radar-dark", !!dark\);/.test(renderBody),
+  "the other refusals are the extension talking — no renderer, no map, still drawing — and a scanline cover over those would be claiming the game did something it did not"
+);
+
+// Structural rather than textual, because the claim is about control flow: a
+// dark panel is always a refusing panel, and a refusing panel returns before
+// anything can show the canvas.
+const toggleAt = renderBody.indexOf('radarEl.classList.toggle("cdc-radar-dark"');
+const refusalAt = renderBody.indexOf("if (reason) {");
+const refusal = refusalAt === -1 ? "" : renderBody.slice(refusalAt, renderBody.indexOf("}", refusalAt));
+check(
+  "and the cover never puts a picture back",
+  toggleAt !== -1 &&
+    refusalAt > toggleAt &&
+    /canvas\.style\.display = "none";/.test(refusal) &&
+    /return;/.test(refusal),
+  "`dark` is a non-empty `reason`, so marking the panel is always followed by the refusal branch hiding the canvas and returning — a cover that reintroduced the map while the game has taken the radar away is the exact maphack this panel exists not to be"
+);
+
+check(
+  "the stylesheet dresses the empty stage rather than drawing a radar",
+  /\.cdc-radar-dark \.cdc-radar-stage/.test(css) &&
+    /@keyframes cdc-radar-scan/.test(css) &&
+    !/cdc-radar-dark[\s\S]{0,600}url\(/.test(css),
+  "there is nothing underneath to cover, so an SHP of a dish would be decoration with a download attached; scanlines over a dead screen say the same thing and carry no map data at all"
+);
+
+check(
+  "and it stands down for a viewer who asked it to",
+  /prefers-reduced-motion[\s\S]{0,200}cdc-radar-dark/.test(css),
+  "a drifting scanline is exactly the kind of ambient motion that setting exists for"
 );
 
 // --- the radar goes dark when the player has no radar --------------------------
@@ -4172,18 +5136,33 @@ function runTicks(script, opts = {}) {
   let disabled = false;
   let painted = 0;
   let rendered = 0;
+  let swept = 0;
+  let oreRead = 0;
+  let synced = 0;
+  let booked = null;
+  // The fake clock. `spacing` is how far it advances between ticks, which is
+  // what the ping's faster cadence does to this loop for real -- so the sweeps
+  // can be measured against WALL TIME rather than against a count of ticks,
+  // which is the whole point of the deadlines.
+  let clock = 0;
+  const spacing = opts.spacing === undefined ? 100 : opts.spacing;
   const combatant = { player: { radarTrait: { isDisabled: () => disabled } } };
   const state = { combatant: opts.noMatch ? null : combatant };
   const api = new Function(
     "state",
     "radarVisible",
     "radarSweepTimer",
-    "radarTicks",
-    "RADAR_SWEEP_EVERY",
-    "RADAR_ORE_EVERY",
+    "radarSweepDue",
+    "radarOreDue",
+    "RADAR_SWEEP_MS",
+    "RADAR_ORE_MS",
     "RADAR_TICK_MS",
+    "RADAR_PING_MS",
+    "radarEventPings",
+    "performance",
     "sweepRadarShroud",
     "sweepRadarOre",
+    "syncRadarEvents",
     "paintRadar",
     "renderRadar",
     "window",
@@ -4192,23 +5171,32 @@ function runTicks(script, opts = {}) {
     state,
     true,
     0,
-    0,
-    // Both sweeps are held off: this measures the flip, and a mask that moved
-    // would paint for a reason that has nothing to do with the radar's state.
-    9999,
-    9999,
+    // Both sweeps are held off unless the caller asks for them: the flip
+    // assertions measure the flag, and a mask that moved would paint for a
+    // reason that has nothing to do with the radar's state.
+    opts.sweeps ? 0 : Infinity,
+    opts.sweeps ? 0 : Infinity,
+    300,
+    1000,
     100,
-    () => false,
-    () => false,
+    33,
+    // The ping list is what `radarTickDelay` reads, so a run says whether one is
+    // alive by handing in a list with something in it.
+    opts.pinging ? [{}] : [],
+    { now: () => clock },
+    () => (swept++, false),
+    () => (oreRead++, false),
+    () => synced++,
     () => painted++,
     () => rendered++,
-    { setTimeout: () => 1 }
+    { setTimeout: (fn, ms) => ((booked = ms), 1) }
   );
   for (const down of script) {
     disabled = down;
     api.radarSweepTick();
+    clock += spacing;
   }
-  return { painted, rendered, ticks: script.length };
+  return { painted, rendered, swept, oreRead, synced, booked, ticks: script.length };
 }
 
 const F = false;
@@ -4245,6 +5233,62 @@ check(
   "out of a match the tick neither renders nor paints on the flag",
   outOfMatch.rendered === 0 && outOfMatch.painted === 0,
   `rendered ${outOfMatch.rendered}, painted ${outOfMatch.painted} — there is no flag out of a match, so the gate must not invent a change and repaint the viewer over the last map played`
+);
+
+// --- the sweeps against a clock that is not the tick's -----------------------
+//
+// The four assertions above are the control: they are unchanged, and they still
+// pass, so the deadline conversion did not move the ladder. What follows is the
+// thing the conversion exists for. The sweeps used to run on every Nth tick,
+// which stops being a cadence the moment the tick's interval changes -- and a
+// live event ping changes it from 100ms to 33ms. Measured over WALL TIME rather
+// than argued: the same simulated second, at both tick spacings.
+
+// Both runs cover the same simulated second: ten ticks of 100ms reach 900, and
+// thirty-one of 33ms reach 990. The counts are exact rather than approximate,
+// which is why the tick counts are what they are.
+const slow = runTicks(Array(10).fill(F), { sweeps: true, spacing: 100 });
+const fast = runTicks(Array(31).fill(F), { sweeps: true, spacing: 33 });
+
+check(
+  "a second of shroud sweeps is the same second however often the tick runs",
+  slow.swept === fast.swept && slow.swept === 4,
+  `${slow.swept} sweeps over 10 ticks of 100ms and ${fast.swept} over 31 of 33ms — on the old divisor the fast run swept every third tick, which is 10 passes over every cell of the map in that same second instead of 4`
+);
+
+check(
+  "and the ore is read once in that second either way",
+  slow.oreRead === fast.oreRead && slow.oreRead === 1,
+  `${slow.oreRead} reads at 100ms spacing and ${fast.oreRead} at 33ms — getObjectsOnTile over every cell of the map, three times a second instead of once, for ore that changes at the speed a harvester empties a cell`
+);
+
+check(
+  "a sweep that is not owed does not run at all",
+  runTicks([F, F, F], { sweeps: false }).swept === 0,
+  "the deadline is what holds it off, so a held-off sweep must cost nothing rather than run and be discarded"
+);
+
+// And the thing the deadlines were converted for.
+
+const withPing = runTicks([F], { pinging: true });
+const withoutPing = runTicks([F], { pinging: false });
+check(
+  "a live ping speeds the tick up",
+  withPing.booked === 33 && withoutPing.booked === 100,
+  `booked ${withPing.booked}ms with a ping and ${withoutPing.booked}ms without — a ping is the only thing on this canvas that moves between tiles rather than across them, and it stops being a reason the moment the last one expires`
+);
+
+const darkPing = runTicks([T], { pinging: true });
+check(
+  "but a dark panel is not sped up for a picture it is not drawing",
+  darkPing.booked === 100,
+  `booked ${darkPing.booked}ms while the radar is off — tripling the rate of a tick that paints nothing is pure cost`
+);
+
+check(
+  "and the events are still collected while the radar is dark",
+  runTicks([T, T, T]).synced === 3,
+  "a ping that started during a blackout should be mid-animation the moment the picture comes back, which is what the client's covered-then-uncovered minimap does"
 );
 
 // --- report -----------------------------------------------------------------------------

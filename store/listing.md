@@ -1,7 +1,8 @@
 # Store listing copy
 
-Everything a Chrome Web Store or Edge Add-ons dashboard asks for in words, so
-the answers are written once, reviewed once, and pasted twice. This file is the
+Everything a Chrome Web Store, Edge Add-ons or Firefox Add-ons (AMO) dashboard
+asks for in words, so the answers are written once, reviewed once, and pasted
+three times. This file is the
 **copy**. The procedure around it — which account, which fee, which order — is
 tracked separately and is not part of this repository.
 
@@ -33,8 +34,15 @@ bought, it is replaced here, in
 | Field | Value |
 | --- | --- |
 | Name | Companion for Chrono Divide |
-| Category | Games (Chrome) / Games & Entertainment (Edge) |
+| Category | Games (Chrome) / Games & Entertainment (Edge) / Games & Entertainment (Firefox) |
 | Language | English |
+| Firefox add-on id | `{702a1344-7a13-4eb0-9ed9-e26ae681cd24}`, from `browser_specific_settings.gecko.id`. It cannot change after the first AMO upload |
+
+**AMO specifics.** One zip from `scripts/pack.mjs` goes to all three stores.
+The data-collection answer is in the manifest
+(`data_collection_permissions.required: ["none"]`), and it matches the Data usage
+table below. AMO asks for source code only when the package is minified or
+generated. No file in `src/` is either, so the answer is no.
 
 The name is deliberately the "Companion for X" form: it states the relationship
 without claiming the relationship is official, and it lets the description carry

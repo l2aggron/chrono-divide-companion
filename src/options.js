@@ -2270,6 +2270,14 @@
     setPrefs({ grabTabKeys: prefGrabTabKeysEl.checked });
   });
 
+  // Firefox has no keyboard lock, so there this box could only claim to do
+  // something. The page and the game tab share a browser, so asking here is
+  // asking the browser the game runs in.
+  if (typeof navigator !== "undefined" && !navigator.keyboard) {
+    prefGrabTabKeysEl.disabled = true;
+    prefGrabTabKeysEl.parentElement.title = "This browser has no keyboard lock, so Ctrl+W stays the browser's.";
+  }
+
   // Takes effect on the next press either way — nothing is held open across it.
   prefFullscreenEnterEl.addEventListener("change", () => {
     setPrefs({ fullscreenOnEnter: prefFullscreenEnterEl.checked });

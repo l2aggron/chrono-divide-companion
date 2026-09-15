@@ -1,9 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Companion for Chrono Divide",
-  "version": "1.24.1",
+  "version": "1.27.0",
   "description": "Faction labels, per-map hints, a map preview, build hotkeys, a memory readout, settings backup and replay build orders — from the ladder or from a file — for Chrono Divide.",
-  "minimum_chrome_version": "111",
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "{702a1344-7a13-4eb0-9ed9-e26ae681cd24}",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -27,7 +36,8 @@
     }
   },
   "background": {
-    "service_worker": "src/background.js"
+    "service_worker": "src/background.js",
+    "scripts": ["src/background.js"]
   },
   "options_ui": {
     "page": "src/options.html",

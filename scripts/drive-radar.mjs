@@ -72,7 +72,7 @@ const required = process.argv.includes("--require");
 const ORIGIN = "https://game.chronodivide.com/";
 
 /** How many assertions a complete run makes -- a tripwire, not bookkeeping. */
-const EXPECTED = 35;
+const EXPECTED = 50;
 
 function loadPlaywright() {
   for (const from of [
@@ -152,6 +152,148 @@ async function installStubClient(page) {
       },
     };
     return true;
+  });
+}
+
+/**
+ * The rest of the client the parity layers read: radar rules and a tick for the
+ * event pings, a minimap renderer for the size translation, the three hover
+ * handlers, a pointer, and a shroud that hides everything.
+ *
+ * Held apart from `installStubClient` so the gate phase keeps running against
+ * exactly the client it was written for. A fixture that grew under an existing
+ * phase is a phase whose assertions quietly changed subject.
+ *
+ * The shroud is the interesting half: `isShrouded` answers true everywhere, so
+ * `buildRadarCover` paints the whole picture opaque black. That is what makes
+ * "the ping draws over the cover" a measurement rather than a reading of the
+ * source. The cell list is filtered through the geometry's own `cellId` so the
+ * mask is never written out of range -- the historical black-half bug, and the
+ * thing that would otherwise fill the log with warnings.
+ */
+async function installParityStub(page) {
+  return page.evaluate(() => {
+    window.__parity = { over: 0, moves: [], out: 0, pointerType: 42 };
+
+    const state = window.__cdc.state;
+    const geo = window.__cdcHq.geometry(state.mapFile);
+    const cells = [];
+    for (let rx = 0; rx < 140; rx++) {
+      for (let ry = 0; ry < 140; ry++) {
+        const id = geo.cellId(rx, ry);
+        if (id >= 0 && id < geo.cellIds) cells.push({ rx, ry, z: 0 });
+      }
+    }
+
+    const ui = state.combatant;
+    ui.player.radarTrait.activeEvents = [];
+    ui.game.currentTick = 0;
+    ui.game.rules = {
+      general: {
+        paradrop: { paradropPlane: "PDPLANE" },
+        radar: {
+          eventMinRadius: 4,
+          eventSpeed: 0.5,
+          eventRotationSpeed: 0.02,
+          eventColorSpeed: 0.05,
+          getEventVisibilityDuration: (type) => [10, 20, 30, 600, 50, 40][type],
+        },
+      },
+    };
+    ui.game.mapShroudTrait = {
+      getPlayerShroud: () => ({ isShrouded: () => true, isFlagged: () => false }),
+    };
+    ui.game.map.tiles.getAll = () => cells;
+    ui.game.map.getObjectsOnTile = () => [];
+    ui.game.getWorld = () => ({ getAllObjects: () => [] });
+    ui.strings = { get: (key) => key };
+
+    Object.assign(ui.worldInteraction, {
+      handleMinimapMouseOver: () => window.__parity.over++,
+      handleMinimapMouseMove: (tile) => window.__parity.moves.push({ rx: tile.rx, ry: tile.ry }),
+      handleMinimapMouseOut: () => window.__parity.out++,
+      getCurrentHover: () => ({ gameObject: undefined, tile: undefined }),
+    });
+
+    state.pointerUi = {
+      get pointerType() {
+        return window.__parity.pointerType;
+      },
+    };
+
+    // The client's pointer art. `mouse.shp` is real art in a real match; here
+    // it only has to exist, because what is under test is that the pointer TYPE
+    // reaches the drawn cursor -- whether the frame looks right at cursor size
+    // is a question for a person in front of a match. `frameCanvas` is stubbed
+    // rather than the SHP decoded: the renderer's own version is covered where
+    // it lives, and a fake indexed bitmap here would be testing the stub.
+    state.modules = state.modules || {};
+    state.modules.Engine = {
+      getImages: () => ({ get: (name) => (name === "mouse.shp" ? { numImages: 600, width: 40, height: 40 } : null) }),
+      getPalettes: () => ({ get: () => ({ hash: "mousepal" }) }),
+    };
+    window.__cdcHq.frameCanvas = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 8;
+      const x = c.getContext("2d");
+      x.fillStyle = "#ffffff";
+      x.fillRect(0, 0, 8, 8);
+      return c;
+    };
+
+    // What `radarEventSpan` takes `eventMinRadius` back into map space with.
+    // The client's own two numbers, off the renderer the extension captures on
+    // `Minimap#setFitSize` -- without them the ping has no honest size and is
+    // not drawn at all, which is a refusal this fixture must not trip.
+    state.minimapObj = {
+      minimapRenderer: { canvasSize: { width: 256 }, dxySize: { width: 512 } },
+    };
+
+    window.__radar.ping = (type, rx, ry, startTick) => {
+      ui.player.radarTrait.activeEvents.push({ type, startTick, tile: { rx, ry, z: 0 } });
+    };
+    window.__radar.tick = (to) => {
+      ui.game.currentTick = to;
+    };
+    return { cells: cells.length };
+  });
+}
+
+/**
+ * The panel's own canvas, read back.
+ *
+ * Counts pixels that are neither the black ground nor the terrain, which is
+ * what a ping is here: the fixture's terrain is one flat green and the cover
+ * over it is pure black, so anything else on the canvas was drawn by the layer
+ * under test.
+ */
+async function canvasInk(page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector(".cdc-radar-canvas");
+    if (!canvas || !canvas.width) return null;
+    const data = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height).data;
+    let lit = 0;
+    let black = 0;
+    let total = 0;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      total++;
+      // Anything with a strong channel that the ground and the cover do not
+      // have. The ping colours are all saturated: #ff00ff, #00ffff, #ffff00.
+      if (r > 120 || b > 120 || (g > 160 && r > 120)) {
+        lit++;
+        const x = (i / 4) % canvas.width;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+      } else if (r < 12 && g < 12 && b < 12) {
+        black++;
+      }
+    }
+    return { lit, black, total, covered: black / total, width: lit ? maxX - minX : 0 };
   });
 }
 
@@ -647,6 +789,189 @@ async function runGateChecks(context) {
   await page.close();
 }
 
+/**
+ * The parity layers, in a browser: the event pings, the hover handshake and the
+ * cover the panel wears when the game takes the radar away.
+ *
+ * A phase of its own, against its own fixture -- see `installParityStub`.
+ */
+async function runParityChecks(context) {
+  const page = await context.newPage();
+  await page.goto(ORIGIN + "/", { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => !!window.__cdc && !!window.__cdcHq, null, { timeout: 20000 });
+  await parkPanel(page);
+  await installStubClient(page);
+  await installParityStub(page);
+  await page.evaluate(() => {
+    window.__radar.down = false;
+    window.__cdc.radar(false);
+    window.__cdc.radar(true);
+  });
+  await page.waitForFunction(() => {
+    const c = document.querySelector(".cdc-radar-canvas");
+    return c && getComputedStyle(c).display !== "none";
+  }, null, { timeout: 20000 });
+
+  // --- the event pings ---
+
+  // Long enough for a shroud sweep to be owed: the mask is what the cover is
+  // built from, and the first sweep after the panel opens is on a deadline
+  // rather than immediate. Measuring before it lands reports a picture with no
+  // cover in it, which is exactly the fixture that would make the assertion
+  // below meaningless.
+  await page.waitForTimeout(600);
+  const quiet = await canvasInk(page);
+  check(
+    "with no event the picture carries no ping",
+    quiet && quiet.lit === 0,
+    `${quiet && quiet.lit} lit pixels before anything happened — the control arm, without which every count below proves nothing`
+  );
+
+  await page.evaluate(() => window.__radar.ping(3, 60, 60, 0));
+  await page.waitForTimeout(300);
+  const born = await canvasInk(page);
+  check(
+    "a radar event puts a ping on the picture",
+    born && born.lit > 0,
+    `${born && born.lit} lit pixels — BaseUnderAttack, drawn from the player's own trait`
+  );
+
+  check(
+    "and it is drawn over a cover that hides the entire map",
+    born && born.lit > 0 && quiet.covered > 0.98,
+    `the fixture's shroud answers isShrouded true for every cell, so buildRadarCover painted ${quiet && (quiet.covered * 100).toFixed(1)}% of the canvas opaque black — and ${born && born.lit} ping pixels are on top of it. Both halves matter: without the first this measures a picture with no cover in it`
+  );
+
+  await page.waitForTimeout(1200);
+  const shrunk = await canvasInk(page);
+  check(
+    "it shrinks as it ages",
+    shrunk && shrunk.lit > 0 && shrunk.width < born.width,
+    `${born && born.width}px across at birth and ${shrunk && shrunk.width}px a second later`
+  );
+
+  await page.evaluate(() => window.__radar.tick(600));
+  await page.waitForTimeout(300);
+  const expired = await canvasInk(page);
+  check(
+    "and it expires on the engine's clock, not the wall's",
+    expired && expired.lit === 0,
+    `${expired && expired.lit} lit pixels once currentTick passed the visibility duration — the entry is still sitting in activeEvents, so nothing but our own cull can have removed it`
+  );
+
+  await page.waitForTimeout(300);
+  const stayed = await canvasInk(page);
+  check(
+    "and does not come back while the trait still carries the entry",
+    stayed && stayed.lit === 0,
+    `${stayed && stayed.lit} lit pixels a tick later`
+  );
+
+  // --- the blackout covers the pings too ---
+
+  await page.evaluate(() => {
+    window.__radar.tick(0);
+    // A different tile, deliberately. The expired entry is still sitting in
+    // activeEvents and its key is still in the seen index -- which is what
+    // stops it respawning -- so a second event at the same tile and start tick
+    // is the same event and must be ignored.
+    window.__radar.ping(3, 70, 70, 0);
+    window.__radar.down = true;
+  });
+  await page.waitForTimeout(400);
+  const dark = await page.evaluate(() => ({
+    dark: document.querySelector(".cdc-radar").classList.contains("cdc-radar-dark"),
+    canvas: getComputedStyle(document.querySelector(".cdc-radar-canvas")).display,
+  }));
+  check(
+    "the panel wears the cover when the game takes the radar away",
+    dark.dark === true && dark.canvas === "none",
+    `class ${dark.dark}, canvas ${dark.canvas} — the class is what lets the stylesheet say "down" instead of "blank", and the canvas stays hidden underneath it`
+  );
+
+  await page.evaluate(() => {
+    window.__radar.down = false;
+  });
+  await page.waitForTimeout(400);
+  const returned = await page.evaluate(() => ({
+    dark: document.querySelector(".cdc-radar").classList.contains("cdc-radar-dark"),
+    canvas: getComputedStyle(document.querySelector(".cdc-radar-canvas")).display,
+  }));
+  check(
+    "and takes it off again when the radar comes back",
+    returned.dark === false && returned.canvas !== "none",
+    `class ${returned.dark}, canvas ${returned.canvas}`
+  );
+
+  const survived = await canvasInk(page);
+  check(
+    "a ping that started during the blackout is still running when it lifts",
+    survived && survived.lit > 0,
+    `${survived && survived.lit} lit pixels — the events are collected on the dark ticks too, which is what the client's covered-then-uncovered minimap does`
+  );
+
+  // --- the hover handshake ---
+
+  await takeLock(page);
+  const box = await rectOf(page, ".cdc-radar-canvas");
+  await page.mouse.move(box.left + box.width / 2, box.top + box.height / 2);
+  await page.waitForTimeout(200);
+  const hovered = await page.evaluate(() => ({ ...window.__parity, moves: window.__parity.moves.length }));
+  check(
+    "moving onto the picture tells the client its minimap is hovered",
+    hovered.over === 1 && hovered.moves > 0,
+    `${hovered.over} mouse-overs and ${hovered.moves} moves — the client sets isMinimapHover on the first and resolves the tile on every one`
+  );
+
+  const dressed = await page.evaluate(() => {
+    const el = document.querySelector(".cdc-cursor");
+    return el ? el.dataset.pointer || "" : "no cursor";
+  });
+  check(
+    "and the drawn cursor wears the pointer type the client just set",
+    dressed === "42",
+    `data-pointer ${dressed} — MoveMini, read back off the client's own Pointer rather than decided here`
+  );
+
+  const readout = await page.evaluate(() => document.querySelector(".cdc-radar-at").textContent);
+  check(
+    "the bar says which cell, and names nothing it has not scouted",
+    /^\d+,\d+$/.test(readout),
+    `"${readout}" — the fixture's shroud hides every cell, so a name here would be the maphack assertion failing in a browser`
+  );
+
+  await page.mouse.move(box.left - 60, box.top - 60);
+  await page.waitForTimeout(200);
+  const gone = await page.evaluate(() => ({
+    out: window.__parity.out,
+    pointer: (document.querySelector(".cdc-cursor") || {}).dataset?.pointer || "",
+  }));
+  check(
+    "leaving the picture tells the client the mouse is out",
+    gone.out === 1,
+    `${gone.out} mouse-outs — a hover flag left standing hands a stale minimap tile to whatever the next click executes`
+  );
+
+  check(
+    "and the cursor goes back to its own shape",
+    gone.pointer === "",
+    `data-pointer "${gone.pointer}"`
+  );
+
+  await page.mouse.move(box.left + box.width / 2, box.top + box.height / 2);
+  await page.waitForTimeout(200);
+  await page.evaluate(() => window.__cdc.radar(false));
+  await page.waitForTimeout(200);
+  const closed = await page.evaluate(() => window.__parity.out);
+  check(
+    "closing the panel while hovering is a mouse-out too",
+    closed === 2,
+    `${closed} mouse-outs — the cursor never moved, so nothing else would have told the client the hover ended`
+  );
+
+  await page.close();
+}
+
 async function main() {
   const playwright = loadPlaywright();
   if (!playwright) {
@@ -659,6 +984,7 @@ async function main() {
   const profile = mkdtempSync(join(tmpdir(), "cdc-radar-"));
   try {
     await phase(playwright, profile, runGateChecks);
+    await phase(playwright, profile, runParityChecks);
   } finally {
     rmSync(profile, { recursive: true, force: true });
   }

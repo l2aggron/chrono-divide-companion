@@ -1,6 +1,6 @@
 # chrono-divide-companion
 
-A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
+An MV3 extension for Chrome, Edge and Firefox that adds pre-game information to the
 [Chrono Divide](https://game.chronodivide.com/) loading screen:
 
 - **Faction labels** next to every player — the country name in text, instead
@@ -13,10 +13,11 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 - **In-game overlay** — the same roster, map facts and hint, with the preview
   over the radar, on a key of yours.
 - **Our own radar** — the map render as a radar of its own, on a key: terrain,
-  ore, units, tech buildings and the camera's rectangle as separate layers, all
-  of it behind your own shroud. The client's radar reads one colour per tile and
-  cannot layer them. Clicks work as they do on the native one — order, move the
-  camera, and `Alt`+right drops a beacon, on the radar or out in the world.
+  ore, units, tech buildings, the camera's rectangle and the game's own event
+  pings as separate layers, all of it behind your own shroud. The client's radar
+  reads one colour per tile and cannot layer them. Clicks work as they do on the
+  native one — order, move the camera, and `Alt`+right drops a beacon, on the
+  radar or out in the world — and the cursor tells you which before you press.
 - **Build hotkeys** — a key that queues one of something, which the game has
   none of. One press is one cameo click. Placement stays yours.
 - **Game commands on our keys** — a key of yours that fires one of the
@@ -141,6 +142,7 @@ A Chromium (Chrome/Edge) MV3 extension that adds pre-game information to the
 
 - [Install](#install)
 - [Diagnosing it](#diagnosing-it)
+- [Changelog](CHANGELOG.md)
 
 **Terms**
 
@@ -222,10 +224,11 @@ has no such limit, and each of them becomes a layer:
 |---|---|
 | terrain | the extension's own render of this map, composited from its per-type layers and scaled to the panel |
 | ore and gems | every ore and gem cell, marked in the colours from **Map rendering** — as cells rather than baked pixels, so the colour changes without redrawing anything |
-| units | one blip per object, in its owner's colour; a building fills the cells of its footprint |
+| units | one blip per object, in its owner's colour; a building fills the cells of its footprint, and one that has been destroyed goes black for its death animation as it does on the game's own radar |
 | tech buildings | the same six pictograms the map previews use — oil derricks, hospitals, and the rest |
 | the shroud | everything above is covered wherever you have not scouted |
-| the camera | a white rectangle around what the game view is showing |
+| the camera | a rectangle around what the game view is showing, in your side's own interface colour |
+| the events | the game's own radar pings — base under attack, harvester under attack, an enemy superweapon detected, a cloak sensed, a beacon dropped — the same shrinking, spinning, colour-cycling square, over everything else |
 
 **What it shows is what your own shroud reveals, and nothing else.** Every layer
 is gated on the same mask the client's own `getVisibleUnits` filters by, a
@@ -233,8 +236,23 @@ cloaked unit is hidden unless you have shared intel with its owner, a disguised
 one is drawn as its disguise, and a Gap Generator's field reads as unexplored
 for as long as it is up. Start positions are not marked at all.
 
-**The bar says which cell the cursor is over**, which is the readout that
-answers "is this pointing where I think it is" without a screenshot.
+There are exactly **two exceptions, and both are the game's own**. An event ping
+draws over the shroud because the client draws its own over the shroud, and
+because a ping says nothing about the cell — only a coordinate the game has
+already told you about. And a paradrop plane draws through unexplored ground,
+which the native radar does too, on the same condition: only where no other
+aircraft is standing on that tile.
+
+**The bar says which cell the cursor is over, and what is on it** — and the
+cursor changes to the game's own move, attack or no-action pointer before you
+press, so a click on the panel is not made blind. Both come from the client's
+own minimap hover, so what the cursor promises is what the click does. Nothing
+is named on ground you have not scouted.
+
+**When the game takes your radar away** — no radar building, no power, an enemy
+Lightning Storm — the panel goes down with it, and now looks like it: a dead
+screen rather than an empty box. It never keeps drawing while the game's own
+minimap is covered, which is the whole reason the panel is allowed to exist.
 
 ### Clicking on it
 
@@ -718,7 +736,8 @@ F11. The API is defined against the Fullscreen API's element, and F11 leaves
 that null. Without the lock the press is **left alone entirely** rather than
 queued into a closing tab — you would lose the order and the tab and see
 neither happen. It is a tick in *Overlay settings*, and `__cdc.chords()`
-reports whether the lock is held.
+reports whether the lock is held. Firefox has no keyboard lock, so there the
+tick is disabled and Ctrl+W and Ctrl+T stay the browser's.
 
 **Which codes it asks for are derived, not named.** Ctrl is *queue next* across
 the whole grid, whose second and fifth slots are `w` and `t`, so
@@ -1350,7 +1369,8 @@ forms one travels through the same lockstep everyone replays.
 ## Per-map guides
 
 The extension's **options page** — click the extension's toolbar icon, or
-`chrome://extensions` → Details → Extension options — is a row of tabs:
+`chrome://extensions` → Details → Extension options (in Firefox, `about:addons`
+→ the extension → Preferences) — is a row of tabs:
 
 | tab | what it is |
 |---|---|
@@ -2647,9 +2667,26 @@ want to undo minutes later.
 
 ## Install
 
+**Chrome or Edge** (121 or later):
+
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select this repo's root.
 3. Open <https://game.chronodivide.com/> and start a game.
+
+**Firefox** (128 or later):
+
+1. `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…**
+2. Select `manifest.json` in this repo's root.
+3. Open <https://game.chronodivide.com/> and start a game.
+
+A temporary add-on is removed when Firefox closes. Its storage is kept, because
+the manifest sets a fixed add-on id.
+
+Firefox has no keyboard lock (`navigator.keyboard`). Because of this, in
+fullscreen the browser keeps its own shortcuts, for example Ctrl+W. A chord that
+uses Ctrl on one of those keys does not get to the game. The option **Hold the
+keys Ctrl needs against the browser in fullscreen** is disabled in Firefox. The memory readout
+also has less to show, because Firefox has no `performance.memory`.
 
 ## Diagnosing it
 
@@ -2662,7 +2699,8 @@ which prefixes resolved and from whose table.
 
 The first line of every diagnosis is the **version**: `__cdc.version` against
 `manifest.json`. If they differ, the extension did not reload and nothing else
-you see is current. `chrome://extensions` → the reload arrow on the card.
+you see is current. `chrome://extensions` → the reload arrow on the card; in
+Firefox, `about:debugging#/runtime/this-firefox` → **Reload** on the add-on.
 
 If the map preview is missing, the loading screen says so in the preview's own
 slot instead of showing nothing.

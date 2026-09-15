@@ -3880,9 +3880,9 @@
    *
    * Units move and the shroud does not, so they cannot share a cadence: a blip
    * redrawn three times a second steps across the map instead of crossing it.
-   * The tick is the shorter of the two and the shroud sweep runs on every
-   * RADAR_SWEEP_EVERY-th one, which keeps both on one timer -- and one timer is
-   * the thing that cannot be left running after the panel closes.
+   * The tick is the shortest of the three and the two sweeps run on their own
+   * deadlines, which keeps all of them on one timer -- and one timer is the
+   * thing that cannot be left running after the panel closes.
    *
    * 100ms rather than a frame: a blip is drawn at its tile, and no unit in this
    * game crosses a tile in under a couple of hundred milliseconds, so the
@@ -3890,17 +3890,45 @@
    * rAF loop is not here -- it was written before the blip was per-tile.
    */
   const RADAR_TICK_MS = 100;
-  const RADAR_SWEEP_EVERY = Math.round(RADAR_SWEEP_MS / RADAR_TICK_MS);
+
   /**
-   * How often the ore is re-read, in ticks -- once a second.
+   * How often the panel is repainted while an event ping is animating.
+   *
+   * The one thing on this canvas that moves between tiles: a ping shrinks and
+   * spins continuously, so it is the only layer with anything to say at 30Hz.
+   * The tick drops to this only while at least one is alive and goes back to
+   * RADAR_TICK_MS when the list empties -- see `radarTickDelay`.
+   */
+  const RADAR_PING_MS = 33;
+
+  /**
+   * How often the ore is re-read -- once a second.
    *
    * Far slower than the shroud on purpose. A shroud edge moves with a unit and
    * has to keep up with one; ore changes at the speed a harvester empties a
    * cell, and reading it at the shroud's rate would be `getObjectsOnTile`
    * twenty thousand times a second to watch paint dry.
    */
-  const RADAR_ORE_EVERY = Math.round(1000 / RADAR_TICK_MS);
-  let radarTicks = 0;
+  const RADAR_ORE_MS = 1000;
+
+  /**
+   * When each sweep is next owed, as a `performance.now()` stamp.
+   *
+   * **Deadlines rather than a count of ticks, and the reason is the ping.** The
+   * two sweeps used to run on every Nth tick, which is only a cadence while the
+   * tick's own interval never changes. It changes now: a live ping takes the
+   * tick from 100ms to 33ms, and a divisor that survived that would sweep the
+   * whole map every 99ms instead of 300 and re-read the ore every 330ms instead
+   * of 1000 -- tripling the most expensive work on this panel exactly while
+   * something is animating, silently, and nowhere near the code that caused it.
+   * A deadline is indifferent to how often it is asked.
+   *
+   * Starting at 0 means both are owed on the first tick, which is what a panel
+   * that has just opened wants: the mask arrives with the first picture rather
+   * than 300ms into it.
+   */
+  let radarSweepDue = 0;
+  let radarOreDue = 0;
   /**
    * The radar flag as of the last tick, so a change can be told from a repeat.
    *
@@ -4515,7 +4543,14 @@
     // The game's own rule, after the two rungs that are about us rather than
     // about the match: this is the one case where there IS a picture to draw
     // and drawing it is the thing forbidden.
-    if (!reason) reason = radarOffline();
+    //
+    // Held apart from the others because it is the only refusal that is the
+    // GAME talking rather than the extension -- the client covers its own
+    // minimap at exactly this moment, with an animation, and a panel that
+    // merely goes blank at the same time reads as broken instead of as a
+    // system going down. `cdc-radar-dark` is what lets the stylesheet say so.
+    const dark = reason ? "" : radarOffline();
+    if (dark) reason = dark;
 
     if (!reason) {
       try {
@@ -4543,8 +4578,20 @@
       }
     }
 
+    // The cover carries no map data of any kind: the canvas below stays
+    // `display: none` whatever this class says, and the class only reaches a
+    // stage that is already empty. That is the difference from copying the
+    // client's own RadarOn/RadarOff animation -- theirs sits over a minimap
+    // that is still there, ours would sit over nothing, so it could only ever
+    // be a picture of a radar dish.
+    radarEl.classList.toggle("cdc-radar-dark", !!dark);
+
     if (reason) {
       radarGeo = null;
+      // Every refusal ends the hover too. `radarCellAt` returns null without
+      // geometry, so the readout would stop calling in — and a hover flag that
+      // stopped being refreshed is exactly the stale one that reaches an order.
+      radarHoverLeave();
       empty.textContent = reason;
       empty.style.display = "flex";
       canvas.style.display = "none";
@@ -4765,6 +4812,11 @@
     // player's own camera is, which hides nothing and is worth seeing over
     // unexplored ground exactly as much as over explored.
     drawRadarViewport(ctx, canvas);
+    // And the pings last of all, over the rectangle as well as over the cover.
+    // The other ungated layer says where your camera is; this one says where
+    // something just happened to you, and of the two that is the one you want
+    // on top when they land in the same place.
+    drawRadarEventPings(ctx, canvas, performance.now());
   }
 
   // --- the shroud -----------------------------------------------------------
@@ -5299,6 +5351,18 @@
   // owner behind it, which is the terrain disguise a mirage tank wears.
   const RADAR_TERRAIN_COLOUR = "#adaa84";
 
+  /**
+   * A building that has been destroyed and leaves rubble.
+   *
+   * The client paints it black for the length of its death animation
+   * (`MinimapModel.updateColors`, the `isDestroyed && rules.leaveRubble` arm),
+   * which is the one moment its radar says something our panel did not: a base
+   * coming apart shows as it happens rather than by pieces silently vanishing.
+   * Black rather than the ground colour on purpose -- it is the client's own
+   * value, and it reads as a hole in the base, which is what it is.
+   */
+  const RADAR_RUBBLE_COLOUR = "#000000";
+
   // Colour objects are shared -- `rules.colors` hands back the same instance to
   // every player who picked that colour -- so this is at most one entry per
   // player per match, and it exists to keep a per-tick loop from building a few
@@ -5359,6 +5423,9 @@
         obj.owner.isCombatant());
     if (!shown) return null;
     if (rules.wall) return RADAR_WALL_COLOURS[obj.name] || RADAR_WALL_DEFAULT;
+    // After the wall branch and before the cloak, which is the client's own
+    // order: a destroyed wall keeps its wall colour there, so it keeps it here.
+    if (obj.isDestroyed && obj.isBuilding() && rules.leaveRubble) return RADAR_RUBBLE_COLOUR;
 
     const cloak = obj.cloakableTrait;
     if (
@@ -5428,6 +5495,66 @@
    * its answer is its own tile, so the client's allocating call is kept for the
    * few that need it rather than made a few hundred times a tick.
    */
+  /**
+   * The mask's one exception, and it belongs to the client rather than to us.
+   *
+   * `MinimapModel` keeps ONE winning object per tile, scored
+   * `4*isTechno + 2*isAircraft + Number(name !== paradropPlane)`, and then sets
+   * `aboveShroudTiles` from that winner alone -- a tile whose winner is the
+   * paradrop plane draws through `Unexplored` instead of black. So a paradrop
+   * run is visible crossing ground you have not scouted, on the game's own
+   * radar, and a panel that hid it would be showing less than the game does.
+   *
+   * **What bounds it is arithmetic, not taste.** The plane scores 4+2+0 = 6. A
+   * ground techno scores 4+0+1 = 5, so the plane still wins and still draws
+   * through the shroud over one. Another AIRCRAFT scores 4+2+1 = 7 and takes
+   * the tile, and the exception goes with it. That is the whole rule: the term
+   * `name !== paradropPlane` is a tie-break between two things in the air, not
+   * a general deprioritisation, and reading it as "only where the tile is
+   * otherwise empty" would hide the plane in exactly the cases it is most
+   * visible natively.
+   *
+   * This is the ONLY cell on this panel drawn on unscouted ground, and it is
+   * bounded by the client's own condition so that it stays parity rather than
+   * becoming an exception of ours. Nothing else may argue from it.
+   */
+  function radarParadropPlane() {
+    const ui = state.combatant;
+    const general = ui && ui.game && ui.game.rules ? ui.game.rules.general : null;
+    const paradrop = general ? general.paradrop : null;
+    const name = paradrop ? paradrop.paradropPlane : null;
+    return typeof name === "string" ? name : "";
+  }
+
+  /**
+   * The cells where some other aircraft outscores the paradrop plane.
+   *
+   * Null unless there is actually a plane in the world, which is almost always:
+   * this is a set built over the whole object list, and paying for it on every
+   * tick of every match to serve a few seconds of one game would be the wrong
+   * trade.
+   */
+  function radarOverheadCells(list, planeName, me, alliances) {
+    if (!planeName || !list.some((obj) => obj.name === planeName)) return null;
+    const cells = new Set();
+    for (const obj of list) {
+      if (obj.name === planeName) continue;
+      if (typeof obj.isAircraft !== "function" || !obj.isAircraft()) continue;
+      // Scored only if it would be drawn at all: the client's winner is picked
+      // from the objects that passed its admission test, so a radar-invisible
+      // or unidentified aircraft takes no tile from the plane.
+      if (!radarBlipColour(obj, me, alliances)) continue;
+      if (obj.tile) cells.add(radarGeo.cellId(obj.tile.rx, obj.tile.ry));
+    }
+    return cells;
+  }
+
+  /** Is this the one object allowed onto unscouted ground, on this cell? */
+  function radarThroughShroud(obj, cell, planeName, overhead) {
+    if (!overhead || !planeName || obj.name !== planeName) return false;
+    return !overhead.has(radarGeo.cellId(cell.rx, cell.ry));
+  }
+
   function radarObjectCells(obj, occupation) {
     const foundation = typeof obj.getFoundation === "function" ? obj.getFoundation() : null;
     if (!foundation || (foundation.width === 1 && foundation.height === 1)) return [obj.tile];
@@ -5452,7 +5579,11 @@
     const out = [];
     for (const obj of world.getAllObjects()) {
       if (typeof obj.isTechno !== "function" || !obj.isTechno()) continue;
-      if (obj.isDestroyed || !obj.isSpawned || !obj.tile) continue;
+      // A destroyed building that leaves rubble is kept, because the client
+      // draws one -- see RADAR_RUBBLE_COLOUR. Everything else destroyed is
+      // gone: an infantryman's corpse is not on the game's radar either.
+      if (obj.isDestroyed && !(obj.isBuilding() && obj.rules && obj.rules.leaveRubble)) continue;
+      if (!obj.isSpawned || !obj.tile) continue;
       out.push(obj);
     }
     return out;
@@ -5521,6 +5652,12 @@
     let unidentified = 0;
     let disguised = 0;
 
+    // The mask's one exception -- see `radarParadropPlane`. Both are resolved
+    // once per paint rather than per object, and both are cheap to nothing when
+    // no paradrop is in the air, which is every tick of most matches.
+    const planeName = radarParadropPlane();
+    const overhead = radarOverheadCells(list, planeName, me, alliances);
+
     for (const obj of list) {
       const colour = radarBlipColour(obj, me, alliances);
       if (!colour) {
@@ -5539,7 +5676,8 @@
       ctx.fillStyle = tint(colour);
       if (building) ctx.beginPath();
       for (const cell of cells) {
-        if (!cell || !radarCellVisible(cell)) continue;
+        if (!cell) continue;
+        if (!radarCellVisible(cell) && !radarThroughShroud(obj, cell, planeName, overhead)) continue;
         painted++;
         const at = geo.cellAt(cell.rx, cell.ry, cell.z);
         const left = (at.x - geo.view.x) * sx;
@@ -5646,6 +5784,12 @@
    */
   function radarTechGlyph(obj, glyphs) {
     if (typeof obj.isBuilding !== "function" || !obj.isBuilding()) return "";
+    // Rubble gets no pictogram, and this line is the whole reason the rubble
+    // change is three edits rather than two. `drawRadarIcons` walks the SAME
+    // list `drawRadarUnits` does, so admitting destroyed buildings there put an
+    // "oil derrick here" mark on a corpse. The client has no glyph layer and so
+    // has no rule to copy; the honest answer is that the mark would be a lie.
+    if (obj.isDestroyed) return "";
     const rules = obj.rules || {};
     if (!rules.needsEngineer) return "";
     return glyphs.BUILDING_ICONS[obj.name] || "marker";
@@ -5781,11 +5925,44 @@
   // rectangle grows or shrinks wrongly while staying centred, which is the
   // symptom to look for.
 
-  // The client draws its own viewport outline in the interface's border colour.
-  // White at less than full strength here: a solid white box over a bright cliff
-  // reads as terrain, and the whole point of this rectangle is that it is not
-  // part of the map.
+  // The client draws its own viewport outline in the interface's border colour,
+  // and so does this one now -- `radarBorderColour` below. This is the fallback
+  // for when there is no interface to ask, and it is white at less than full
+  // strength because a solid white box over a bright cliff reads as terrain,
+  // and the whole point of this rectangle is that it is not part of the map.
   const RADAR_VIEWPORT_COLOUR = "rgba(255,255,255,0.85)";
+
+  /** How far the outline is faded, whatever colour it ends up being. */
+  const RADAR_VIEWPORT_ALPHA = 0.85;
+
+  /**
+   * The colour the client's own interface draws its minimap furniture in.
+   *
+   * `Hud#getTextColor()` is the side's text colour -- `rgb(165,211,255)` for
+   * Allied, `yellow` for Soviet -- and the client hands exactly this to its own
+   * `Minimap` as the `borderColor` its viewport outline is drawn in. Taking the
+   * same value means our rectangle belongs to the same interface theirs does.
+   *
+   * A **plain CSS string**, used verbatim, never parsed and rebuilt. That is
+   * what lets this be one guarded read rather than a colour model: the alpha
+   * that used to live inside the constant is applied as `globalAlpha` instead,
+   * so a string this file cannot interpret still works.
+   *
+   * Outside a match `state.hud` is null -- the client nulls it on `Hud#destroy`
+   * -- and the panel viewing the last map played strokes white. That is correct
+   * rather than a fallback: there is no house whose colour it could be.
+   */
+  function radarBorderColour() {
+    const hud = state.hud;
+    if (!hud || typeof hud.getTextColor !== "function") return RADAR_VIEWPORT_COLOUR;
+    try {
+      const colour = hud.getTextColor();
+      return typeof colour === "string" && colour ? colour : RADAR_VIEWPORT_COLOUR;
+    } catch (e) {
+      note(`could not read the interface's text colour — ${e && e.message}`, "warn");
+      return RADAR_VIEWPORT_COLOUR;
+    }
+  }
 
   /**
    * The camera's rectangle in the panel's canvas pixels, or null when there is
@@ -5839,7 +6016,8 @@
     if (!rect) return;
     const line = Math.max(1, Math.round(canvas.width / 400));
     ctx.save();
-    ctx.strokeStyle = RADAR_VIEWPORT_COLOUR;
+    ctx.strokeStyle = radarBorderColour();
+    ctx.globalAlpha = RADAR_VIEWPORT_ALPHA;
     ctx.lineWidth = line;
     ctx.strokeRect(
       rect.left + line / 2,
@@ -5848,6 +6026,362 @@
       Math.max(0, rect.height - line)
     );
     ctx.restore();
+  }
+
+  // --- radar event pings ------------------------------------------------------
+  //
+  // The marker the game puts on its own minimap when something happens to you:
+  // your base is attacked, a harvester is attacked, an enemy superweapon is
+  // detected, a cloaked unit is sensed, somebody drops a beacon, a map trigger
+  // fires. It shrinks from fifteen times its size, spins, ping-pongs between
+  // two colours and expires. Without it a player watching this panel instead of
+  // the client's own loses the one thing that says *where* — which is the
+  // opposite of what a radar is for.
+  //
+  // **Polled off the player's own trait, not subscribed to the event bus.** The
+  // client's own `Minimap` subscribes to `EventType.RadarEvent` and then tests
+  // `event.target === this.localPlayer`, because that bus carries every
+  // player's events. Reading `player.radarTrait.activeEvents` instead reaches
+  // only OUR events: the filter stops being a line of code that could be
+  // deleted and becomes the shape of the read. Under a standing no-maphack
+  // constraint that difference is the whole argument, and it costs nothing —
+  // `RadarTrait#addEventForPlayer` pushes `{startTick, tile, type}` onto the
+  // target's own trait and dispatches the event from the same block, so the
+  // list is the dispatch. Polling also inherits this panel's lifetime for free,
+  // where a subscription would need an unsubscribe wired to both the panel
+  // closing and the match ending; the tick already polls the radar flag for the
+  // same reason.
+  //
+  // **Two clocks, which is the client's own split.** A ping's LIFE is counted
+  // in engine ticks (`game.currentTick - startTick >= visibility`) because that
+  // is the clock its `startTick` is stamped in — no conversion, no drift, and
+  // it reproduces "a ping lives shorter in real time at higher game speed"
+  // without reading `game.speed.value` at all, which is one fewer client
+  // surface that can move. The client reaches the same place from the other
+  // end, dividing the duration by ticks-per-millisecond. A ping's ANIMATION is
+  // counted in wall-clock milliseconds, `(now - seenAt)/1000*60`, literally the
+  // client's expression: driving the spin off ticks would make it speed up with
+  // the game, which the client's does not.
+  //
+  // Our own cull is not belt-and-braces. The trait prunes `activeEvents` only
+  // when a NEW event is created, so an entry can sit there long past its
+  // visibility duration with nothing to push it out.
+  //
+  // **Drawn over the cover, and NOT gated by `radarCellVisible`.** It is the
+  // second of exactly two layers on this panel that are not — the viewport
+  // rectangle is the other — and the exception is deliberate. An event's tile
+  // may be unexplored by construction: `EnemyObjectSensed` fires when a
+  // `RevealToAll` object spawns, and a map trigger fires at a waypoint. The
+  // client draws its ping over its finished minimap unconditionally, so
+  // clipping ours to scouted ground would make this panel worse than the game's
+  // own, which is the opposite failure from the one the mask guards. And a ping
+  // says nothing about the cell — not its owner, not what stands on it, not
+  // even its terrain — only a coordinate the client has already handed the
+  // local player.
+  //
+  // **It is a 2:1 rhombus on screen, not a square, and that is the clone.** The
+  // client's ping is a square in `dxy`, the space its minimap is drawn rotated
+  // into. Our render is unrotated iso, where one `dx` is half a cell wide and
+  // one `dy` half a cell tall — 30px against 15px — so the same square in dxy
+  // comes out twice as wide as it is tall here. Mapping it anisotropically is
+  // what makes our ping bracket the same TILES the native one does, which is
+  // the thing worth cloning across two different projections of one map. Do not
+  // "fix" this into an axis-aligned square: that would keep the shape and lose
+  // the meaning.
+
+  /**
+   * The two colours each event type swings between, read off the client's own
+   * table at v0.83.3 (`gui/screen/game/component/Minimap`, the `Map` built over
+   * `RadarEventType`). Four of the six types are not in it and take the
+   * fallback, which is how the client does it too — `r?.high ?? 16711935`.
+   *
+   * Plain strings, never a client `Color`: constructing one reaches a batched
+   * voxel builder that resolves palettes by content hash and throws inside a
+   * render loop. Every colour on this panel is either read off the client or
+   * written out here as text.
+   */
+  const RADAR_EVENT_SENSED = 5;
+  const RADAR_EVENT_NONCOMBAT = 1;
+  const RADAR_EVENT_COLOURS = new Map([
+    [RADAR_EVENT_SENSED, { high: "#ffff00", low: "#848400" }],
+    [RADAR_EVENT_NONCOMBAT, { high: "#00ffff", low: "#008484" }],
+  ]);
+  const RADAR_EVENT_FALLBACK = { high: "#ff00ff", low: "#840084" };
+
+  /** The scale a ping starts at, and the shortest it may be drawn, in canvas px. */
+  const RADAR_EVENT_START_SCALE = 15;
+  const RADAR_EVENT_MIN_PX = 3;
+
+  /** The pings being drawn, and the trait entries they were spawned from. */
+  let radarEventPings = [];
+  const radarEventSeen = new Map();
+  let radarEventNoted = "";
+
+  /**
+   * The client's radar rules, or null if any number this layer needs is absent.
+   *
+   * Fails closed as a whole rather than per field: every one of these is used
+   * in the same expression, and a ping animated from three of the four numbers
+   * and a guess for the fourth is a worse answer than no ping.
+   */
+  function radarEventRules() {
+    const ui = state.combatant;
+    const general = ui && ui.game && ui.game.rules ? ui.game.rules.general : null;
+    const radar = general ? general.radar : null;
+    if (!radar) return null;
+    const needed = [radar.eventMinRadius, radar.eventSpeed, radar.eventRotationSpeed, radar.eventColorSpeed];
+    if (!needed.every((n) => typeof n === "number" && isFinite(n))) return null;
+    return radar.eventMinRadius > 0 ? radar : null;
+  }
+
+  /**
+   * How long a ping of this type is shown, in engine ticks.
+   *
+   * `getEventVisibilityDuration` **throws** a `RangeError` for a type its
+   * rules.ini has no entry for, which is why this is wrapped. A type we cannot
+   * age is dropped rather than drawn: a ping with no expiry would sit on the
+   * picture for the rest of the match. The count comes back to the caller and
+   * is reported, so the silence here is a return value rather than a swallow.
+   */
+  function radarEventLife(rules, type) {
+    if (typeof rules.getEventVisibilityDuration !== "function") return 0;
+    try {
+      const ticks = rules.getEventVisibilityDuration(type);
+      return typeof ticks === "number" && ticks > 0 ? ticks : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  /**
+   * The ping's side at scale 1, in `dxy` units.
+   *
+   * `eventMinRadius` is in the CLIENT's minimap canvas pixels, so it means
+   * nothing here until it is taken back into map space — and the only two
+   * numbers that can do that are the client's own `canvasSize` and `dxySize`,
+   * off the renderer this extension already captures on `Minimap#setFitSize`.
+   * `dxyToCanvas` scales by `canvasSize.width / dxySize.width`, so the inverse
+   * is this.
+   *
+   * A consequence worth knowing rather than hiding: the native ping's footprint
+   * on the MAP depends on how large the client is drawing its minimap, because
+   * its size is fixed in that canvas's pixels. Ours inherits that, which is
+   * what makes it the same marker.
+   *
+   * Zero when either number is unreadable, and zero draws nothing.
+   */
+  function radarEventSpan(rules) {
+    const mini = state.minimapObj;
+    const renderer = mini ? mini.minimapRenderer : null;
+    if (!renderer) return 0;
+    const canvasSize = renderer.canvasSize;
+    const dxySize = renderer.dxySize;
+    const across = canvasSize ? canvasSize.width : 0;
+    const span = dxySize ? dxySize.width : 0;
+    if (!(across > 0) || !(span > 0)) return 0;
+    return (rules.eventMinRadius * span) / across;
+  }
+
+  /** The local player's own radar events, or null when there is no trait to ask. */
+  function radarEventList() {
+    const ui = state.combatant;
+    const player = ui ? ui.player : null;
+    const trait = player ? player.radarTrait : null;
+    const events = trait ? trait.activeEvents : null;
+    return Array.isArray(events) ? events : null;
+  }
+
+  /**
+   * Spawn what is new, drop what has expired, and forget what the trait has.
+   *
+   * Runs on every tick, including the ticks where the radar is dark: the canvas
+   * is hidden then and nothing is painted into it, but a ping that started
+   * during a blackout should be mid-animation the moment the picture comes
+   * back, exactly as the client's covered-then-uncovered minimap is. That shows
+   * strictly less than the client does, never more.
+   *
+   * The `seen` index is what stops one entry becoming a ping again on the next
+   * poll, and it is pruned by **presence rather than by age**: a key lives
+   * exactly as long as the trait keeps the entry it came from. Ageing it out
+   * would need the trait's own `getEventDuration`, which can outlast the
+   * visibility duration — and a key dropped early is a ping that respawns.
+   */
+  function syncRadarEvents(now) {
+    const ui = state.combatant;
+    const game = ui ? ui.game : null;
+    const tick = game ? game.currentTick : null;
+    const rules = radarEventRules();
+    const events = radarEventList();
+    if (!rules || !events || typeof tick !== "number") {
+      if (radarEventPings.length) radarEventPings = [];
+      if (radarEventSeen.size) radarEventSeen.clear();
+      noteRadarEvents(!rules ? "no radar rules" : !events ? "no radarTrait" : "no game tick", 0, 0, 0);
+      return;
+    }
+
+    const span = radarEventSpan(rules);
+    const live = new Set();
+    let unknown = 0;
+    for (const entry of events) {
+      if (!entry || typeof entry.type !== "number" || typeof entry.startTick !== "number") continue;
+      const tile = entry.tile;
+      if (!tile || typeof tile.rx !== "number" || typeof tile.ry !== "number") continue;
+      const life = radarEventLife(rules, entry.type);
+      if (!life) {
+        unknown++;
+        continue;
+      }
+      const key = `${entry.type}|${entry.startTick}|${tile.rx},${tile.ry}`;
+      live.add(key);
+      if (radarEventSeen.has(key)) continue;
+      radarEventSeen.set(key, entry.startTick);
+      radarEventPings.push({
+        key,
+        type: entry.type,
+        rx: tile.rx,
+        ry: tile.ry,
+        z: typeof tile.z === "number" ? tile.z : 0,
+        startTick: entry.startTick,
+        life,
+        seenAt: now,
+      });
+    }
+    for (const key of radarEventSeen.keys()) if (!live.has(key)) radarEventSeen.delete(key);
+    radarEventPings = radarEventPings.filter((ping) => tick - ping.startTick < ping.life);
+    noteRadarEvents(span ? "" : "the client's minimap has not been sized", radarEventPings.length, unknown, span);
+  }
+
+  /**
+   * Where a ping is in its life: how big, how turned, and how far between its
+   * two colours. Straight out of `MinimapPing#update` at v0.83.3.
+   *
+   * The rotation stops when the shrinking does, and the client's expression is
+   * why: once `scale` is 1 the angle is snapped DOWN to the multiple of a
+   * quarter turn below it, every frame, so each frame's advance is taken back
+   * and the square sits square. That is a behaviour, not a rounding artefact.
+   *
+   * Pure arithmetic on its arguments, so the whole law can be asserted in node.
+   */
+  function radarEventShape(ping, now, rules) {
+    const frames = ((now - ping.seenAt) / 1000) * 60;
+    const shrink = rules.eventSpeed / rules.eventMinRadius;
+    const scale = Math.max(1, RADAR_EVENT_START_SCALE - shrink * frames);
+    let angle = rules.eventRotationSpeed * frames;
+    if (scale === 1) angle = Math.min(angle, Math.floor(angle / (Math.PI / 2)) * (Math.PI / 2));
+    // A triangle wave over a sawtooth of period two, which is the client's
+    // `min(1, f) - max(0, f - 1)` on a factor kept modulo 2.
+    const swing = (rules.eventColorSpeed * frames) % 2;
+    return { scale, angle, phase: Math.min(1, swing) - Math.max(0, swing - 1) };
+  }
+
+  /** One channel-wise step from one `#rrggbb` toward another. */
+  function radarEventMix(from, to, t) {
+    const a = parseInt(from.slice(1), 16);
+    const b = parseInt(to.slice(1), 16);
+    const at = (shift) => {
+      const x = (a >>> shift) & 255;
+      const y = (b >>> shift) & 255;
+      return Math.max(0, Math.min(255, Math.round(x + (y - x) * t)));
+    };
+    return "#" + ((at(16) << 16) | (at(8) << 8) | at(0)).toString(16).padStart(6, "0");
+  }
+
+  /**
+   * The two colours this frame, which are the pair crossing past each other.
+   *
+   * The client lerps `hi` toward `low` and `low` toward `hi` by the same factor,
+   * so at the turn they meet in the middle and the square reads as one colour
+   * before separating again.
+   */
+  function radarEventColours(type, phase) {
+    const pair = RADAR_EVENT_COLOURS.get(type) || RADAR_EVENT_FALLBACK;
+    return {
+      a: radarEventMix(pair.high, pair.low, phase),
+      b: radarEventMix(pair.low, pair.high, phase),
+    };
+  }
+
+  /**
+   * The pings, over everything, in canvas pixels.
+   *
+   * The centre is `drawRadarUnits`' arithmetic — the same `cellAt`, the same
+   * `view` offset, the same half-cell nudge — because a marker that pointed at
+   * a different pixel than a blip on the same tile would be worse than useless.
+   *
+   * The four sides are stroked separately with a gradient each, alternating
+   * direction, because that is what the client's geometry is: four line
+   * segments whose vertex colours run `a, b, b, a, a, b…` around the square.
+   */
+  function drawRadarEventPings(ctx, canvas, now) {
+    if (!radarEventPings.length || !radarGeo) return;
+    const rules = radarEventRules();
+    if (!rules) return;
+    const span = radarEventSpan(rules);
+    if (!span) return;
+
+    const geo = radarGeo;
+    const sx = canvas.width / geo.cropWidth;
+    const sy = canvas.height / geo.cropHeight;
+    // Half a cell on each axis: the dx and dy the client's square is measured
+    // in are exactly these, which is where the 2:1 in the header comes from.
+    const halfW = (geo.block.width / 2) * sx;
+    const halfH = (geo.block.height / 2) * sy;
+    // The floor is on the drawn size and applied AFTER the scale, on the blip's
+    // precedent: a ping shrunk below a few pixels by a small panel is a warning
+    // the player cannot see, and the shorter axis is the one that runs out.
+    const floor = halfH > 0 ? RADAR_EVENT_MIN_PX / 2 / halfH : 0;
+    const line = Math.max(1, Math.round(canvas.width / 400));
+
+    ctx.save();
+    ctx.lineWidth = line;
+    for (const ping of radarEventPings) {
+      const shape = radarEventShape(ping, now, rules);
+      const at = geo.cellAt(ping.rx, ping.ry, ping.z);
+      const cx = (at.x - geo.view.x) * sx + halfW;
+      const cy = (at.y - geo.view.y) * sy + halfH;
+      const half = Math.max((span * shape.scale) / 2, floor);
+      const cos = Math.cos(shape.angle);
+      const sin = Math.sin(shape.angle);
+      const corners = [
+        [-half, -half],
+        [-half, half],
+        [half, half],
+        [half, -half],
+      ].map(([u, v]) => ({
+        x: cx + (u * cos - v * sin) * halfW,
+        y: cy + (u * sin + v * cos) * halfH,
+      }));
+
+      const { a, b } = radarEventColours(ping.type, shape.phase);
+      for (let i = 0; i < corners.length; i++) {
+        const from = corners[i];
+        const to = corners[(i + 1) % corners.length];
+        const grad = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+        grad.addColorStop(0, i % 2 ? b : a);
+        grad.addColorStop(1, i % 2 ? a : b);
+        ctx.strokeStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Said once per shape, on `noteRadarUnits`' precedent, not once per tick. */
+  function noteRadarEvents(reason, live, unknown, span) {
+    const shape = `${reason}|${live ? 1 : 0}|${unknown ? 1 : 0}|${span ? 1 : 0}`;
+    if (shape === radarEventNoted) return;
+    radarEventNoted = shape;
+    if (reason) {
+      note(`radar events: none drawn — ${reason}`, "warn");
+      return;
+    }
+    note(
+      `radar events: ${live} ping${live === 1 ? "" : "s"} live` +
+        (unknown ? `, ${unknown} of a type this client publishes no duration for` : "")
+    );
   }
 
   // --- the dials --------------------------------------------------------------
@@ -6343,6 +6877,149 @@
    * not taking orders, and a click that got through then would be an order
    * issued into a match that is already over.
    */
+  // --- hovering ---------------------------------------------------------------
+  //
+  // What the cursor says a press will do, before the press. The client's own
+  // minimap resolves the object under the pointer and swaps the mouse to a
+  // `*Mini` pointer -- move, attack, no action -- so a click on it is never
+  // made blind. Ours was: the bar said `rx,ry` and the cursor never changed.
+  //
+  // **The client's three handlers do the whole of it**, and are called rather
+  // than reimplemented, for the same reason `executeMinimapClickCommand` is:
+  //
+  //   handleMinimapMouseOver()      -> isMinimapHover = true
+  //   handleMinimapMouseMove(tile)  -> getHover, then currentMode.hover
+  //                                    or updateDefaultAction
+  //   handleMinimapMouseOut()       -> pointer back to Default, flag cleared
+  //
+  // `updateDefaultAction` ends in
+  // `pointer.setPointerType(defaultActionHandler.getPointerType(isMinimapHover))`,
+  // so calling them IS the cursor feature -- there is no table of ours mapping
+  // an object to an action, and no second opinion to drift from the click path
+  // that runs a moment later.
+  //
+  // **The dangerous half is the flag, not the drawing.** `isMinimapHover` left
+  // true after the cursor leaves makes `getCurrentHover()` hand a stale minimap
+  // tile to `currentMode.execute` -- building placement, superweapon targeting
+  // -- and to our own beacon. So the out-call is made from every path that can
+  // end a hover: the cursor leaving the picture, the panel closing, and every
+  // refusal branch of `renderRadar`. `radarHovering` makes it idempotent.
+
+  /** Is the client's minimap currently being told we are over it? */
+  let radarHovering = false;
+
+  /**
+   * Tell the client the cursor is over its minimap at this cell, and give back
+   * whatever it decided is under there.
+   *
+   * Fails closed to today's behaviour -- `rx,ry` and the plain arrow -- if any
+   * part of the path is missing. **Not** re-derived from `minimapHandler.getHover`
+   * plus `updateDefaultAction` by hand: that would be a second writer of
+   * `isMinimapHover`, and two of those is how a stale tile reaches an order.
+   */
+  function radarHoverEnter(cell) {
+    const world = state.combatant && state.combatant.worldInteraction;
+    if (!world || typeof world.handleMinimapMouseMove !== "function") {
+      radarSayOnce("this client's minimap hover path is not where it was — the radar cannot show what a click will do", "warn");
+      return null;
+    }
+    if (typeof world.isEnabled === "function" && !world.isEnabled()) return null;
+    const tile = radarTileAt(cell);
+    if (!tile) return null;
+    try {
+      if (!radarHovering && typeof world.handleMinimapMouseOver === "function") {
+        world.handleMinimapMouseOver();
+      }
+      radarHovering = true;
+      world.handleMinimapMouseMove(tile);
+      return typeof world.getCurrentHover === "function" ? world.getCurrentHover() : null;
+    } catch (e) {
+      note(`the client's minimap hover threw — ${e && e.message}`, "warn");
+      radarHoverLeave();
+      return null;
+    }
+  }
+
+  /** Tell the client the cursor has left. Safe to call when it never entered. */
+  function radarHoverLeave() {
+    if (!radarHovering) return;
+    radarHovering = false;
+    const world = state.combatant && state.combatant.worldInteraction;
+    if (!world || typeof world.handleMinimapMouseOut !== "function") return;
+    try {
+      world.handleMinimapMouseOut();
+    } catch (e) {
+      note(`the client's minimap mouse-out threw — ${e && e.message}`, "warn");
+    }
+  }
+
+  /**
+   * What to call the thing under the cursor, for the bar.
+   *
+   * **Three gates, any one of which is enough**, because this is the one place
+   * in the hover path that puts information on screen rather than into the
+   * client: the client's own `getHover` refuses a shrouded tile; our mask
+   * refuses a cell we have not scouted, and refuses outright if the mask
+   * belongs to another map; and `radarBlipColour` refuses anything the blips
+   * would not have drawn, which carries the cloak, the disguise and the
+   * radar-invisible rules already audited for that layer.
+   *
+   * **The techno wins here and nowhere else** (asked for, 2026-09-01). The
+   * client's `getHover` sorts ASCENDING on `isTechno` and takes the first, so
+   * on a tile holding ore and a tank it answers the ore. The cursor and the
+   * click keep that answer untouched -- they are the client's business. Only
+   * this label prefers the tank, because a readout naming the ore under a tank
+   * is answering a question nobody asked.
+   */
+  function radarHoverName(cell, hover) {
+    if (!radarGeo || !radarShroud || radarShroud.mapFile !== radarMapFile()) return "";
+    if (!radarCellVisible(cell)) return "";
+    const found = hover && hover.gameObject;
+    if (!found) return "";
+    const obj = radarHoverSubject(cell, found);
+    if (!obj) return "";
+    if (typeof obj.isTechno === "function" && obj.isTechno()) {
+      const ui = state.combatant;
+      const game = ui ? ui.game : null;
+      if (!radarBlipColour(obj, ui ? ui.player : null, game ? game.alliances : null)) return "";
+      // Named as what it pretends to be, on the same rule the blip is coloured
+      // by: a Mirage tank reads as a tree here because it reads as a tree there.
+      const wears = obj.disguiseTrait;
+      const disguise =
+        (obj.isInfantry() || obj.isVehicle()) && wears && typeof wears.getDisguise === "function"
+          ? wears.getDisguise()
+          : null;
+      const seen = disguise && !radarSharedIntel(game ? game.alliances : null, ui ? ui.player : null, obj.owner)
+        ? disguise
+        : obj;
+      return displayName(seen.rules || {}, seen.name || "");
+    }
+    return displayName(obj.rules || {}, obj.name || "");
+  }
+
+  /**
+   * The object the LABEL is about, which is the client's answer unless a techno
+   * is standing on the same tile.
+   */
+  function radarHoverSubject(cell, found) {
+    const ui = state.combatant;
+    const map = ui && ui.game ? ui.game.map : null;
+    if (typeof found.isTechno === "function" && found.isTechno()) return found;
+    if (!map || typeof map.getObjectsOnTile !== "function") return found;
+    const tile = radarTileAt(cell);
+    if (!tile) return found;
+    try {
+      for (const obj of map.getObjectsOnTile(tile)) {
+        if (typeof obj.isTechno === "function" && obj.isTechno()) return obj;
+      }
+    } catch (e) {
+      // Named rather than swallowed: this is a read that the client's own
+      // getHover makes on every move, so one that throws is a client change.
+      note(`could not walk the tile under the cursor — ${e && e.message}`, "warn");
+    }
+    return found;
+  }
+
   function radarClickThrough(tile, rightButton) {
     const world = state.combatant && state.combatant.worldInteraction;
     if (!world || typeof world.executeMinimapClickCommand !== "function") {
@@ -6441,7 +7118,7 @@
   function radarSweepTick() {
     radarSweepTimer = 0;
     if (!radarVisible) return;
-    radarTicks++;
+    const now = performance.now();
     // The radar flag, polled. The client's own `SidebarRadar` polls
     // `CombatantSidebarModel#radarEnabled` every frame rather than subscribing
     // to `RadarOnOffEvent`, and this is that poll on the clock this panel
@@ -6453,9 +7130,19 @@
     const flipped = offline !== radarOfflineLast;
     radarOfflineLast = offline;
     // The expensive half, on its own longer cadence: one pass over every cell
-    // of the map, against a mask that moves at scouting pace.
-    const moved = radarTicks % RADAR_SWEEP_EVERY === 0 ? sweepRadarShroud() : false;
-    const oreMoved = radarTicks % RADAR_ORE_EVERY === 0 ? sweepRadarOre() : false;
+    // of the map, against a mask that moves at scouting pace. The deadline is
+    // set before the sweep runs, so a sweep that takes longer than its own
+    // interval cannot book itself back-to-back.
+    const sweepDue = now >= radarSweepDue;
+    if (sweepDue) radarSweepDue = now + RADAR_SWEEP_MS;
+    const moved = sweepDue ? sweepRadarShroud() : false;
+    const oreDue = now >= radarOreDue;
+    if (oreDue) radarOreDue = now + RADAR_ORE_MS;
+    const oreMoved = oreDue ? sweepRadarOre() : false;
+    // Ahead of the paint decision, so a ping that arrived this tick is on the
+    // picture this tick rather than a tick late -- and ahead of the re-booking,
+    // because whether one is alive is what sets the next delay.
+    syncRadarEvents(now);
     // The cheap half, every tick. A repaint is a blit of a canvas already
     // composited plus a few hundred fills, and proving that nothing moved would
     // cost the same walk over the world that drawing it does -- so it repaints
@@ -6467,7 +7154,20 @@
     // already current the moment the radar comes back.
     if (flipped) renderRadar();
     else if (!offline && (moved || oreMoved || state.combatant)) paintRadar();
-    radarSweepTimer = window.setTimeout(radarSweepTick, RADAR_TICK_MS);
+    radarSweepTimer = window.setTimeout(radarSweepTick, radarTickDelay(offline));
+  }
+
+  /**
+   * How long until the next tick.
+   *
+   * A ping is the only thing on this canvas that moves between tiles rather
+   * than across them, so it is the only reason to run faster than the blips
+   * need -- and it stops being a reason the moment the last one expires. Gated
+   * on the radar being up as well: a dark panel paints nothing, so tripling the
+   * rate of a tick that does no drawing would be pure cost.
+   */
+  function radarTickDelay(offline) {
+    return !offline && radarEventPings.length ? RADAR_PING_MS : RADAR_TICK_MS;
   }
 
   function syncRadarSweep() {
@@ -6614,9 +7314,31 @@
     const at = radarEl.querySelector(".cdc-radar-at");
     if (!at) return;
     const cell = radarCellAt(cursorPoint());
-    const text = cell ? `${cell.rx},${cell.ry}` : "";
+    // The hover goes to the client on the way past. Off the picture is a
+    // mouse-out and not merely a blank readout: a hover flag left standing
+    // hands a stale tile to whatever the next click executes.
+    const hover = cell ? radarHoverEnter(cell) : (radarHoverLeave(), null);
+    const name = cell ? radarHoverName(cell, hover) : "";
+    const text = cell ? `${cell.rx},${cell.ry}${name ? ` · ${name}` : ""}` : "";
     if (at.textContent !== text) at.textContent = text;
     syncRadarCredits();
+  }
+
+  /**
+   * Dress the drawn cursor as whatever the client just decided.
+   *
+   * Only under a pointer lock, because that is the only time we draw a cursor
+   * at all -- with a free mouse the browser is drawing the real one and the
+   * canvas's own `crosshair` applies.
+   */
+  function syncRadarCursor() {
+    if (!radarHovering || !mouseCaptured()) {
+      styleCursor(null);
+      return;
+    }
+    const ui = state.pointerUi;
+    const type = ui && typeof ui.pointerType === "number" ? ui.pointerType : null;
+    styleCursor(type);
   }
 
   /**
@@ -6644,6 +7366,9 @@
 
   function toggleRadar(force) {
     radarVisible = force === undefined ? !radarVisible : !!force;
+    // Closing the panel is a mouse-out the client would otherwise never get:
+    // the cursor does not move, so nothing else would tell it the hover ended.
+    if (!radarVisible) radarHoverLeave();
     renderRadar();
     // The shared mousemove/mousedown pair is installed only while something
     // wants it, and this panel is now one of the things that can want it.
@@ -9326,6 +10051,77 @@
    */
   let cursorEl = null;
 
+  /**
+   * The client's own pointer art, one frame at a time.
+   *
+   * `mouse.shp` with `mousepal.pal` is what the client's `Pointer` is built
+   * from, and `PointerType` is a frame number into it -- `Mini` 1, `MoveMini`
+   * 42, `NoActionMini` 52, `AttackMini` 63, and the rest. So showing what a
+   * click will do needs no art of ours: it is the same file the game is
+   * drawing from, one frame out of it.
+   *
+   * Through `__cdcHq.frameCanvas` rather than `ImageUtils.convertShpToCanvas`,
+   * which the cameo path uses: that one lays every frame of the file out in a
+   * row, and a pointer file has hundreds of them. See the note there.
+   *
+   * Cached per type, `""` for a type whose art could not be read -- and `""` is
+   * cached too, so a missing file is one warning rather than one per mouse
+   * move. Yuri's Revenge names the file `mouse.sha`; this asks for `mouse.shp`
+   * and falls back to our own arrow when it is not there, rather than guessing
+   * which engine is running.
+   */
+  const clientPointers = new Map();
+
+  function clientPointerUrl(type) {
+    if (clientPointers.has(type)) return clientPointers.get(type);
+    let url = "";
+    const { Engine } = state.modules;
+    const hq = window.__cdcHq;
+    try {
+      const shp = Engine && Engine.getImages().get("mouse.shp");
+      const palette = Engine && Engine.getPalettes().get("mousepal.pal");
+      if (shp && palette && hq && typeof hq.frameCanvas === "function") {
+        const canvas = hq.frameCanvas(shp, type, palette);
+        if (canvas) url = canvas.toDataURL();
+      } else if (!shp) {
+        note("the client has no mouse.shp — the radar keeps its own cursor", "warn");
+      }
+    } catch (e) {
+      note(`could not read the client's pointer art (${e && e.message})`, "warn");
+    }
+    clientPointers.set(type, url);
+    return url;
+  }
+
+  /**
+   * Dress the drawn cursor as one of the client's pointers, or put it back.
+   *
+   * `null` restores the clip-path arrow this file has always drawn, which is
+   * also what every failure lands on.
+   *
+   * The client centres its own sprite only for types above `Mini`
+   * (`Pointer#updateSpritePosition`); `Default` and `Mini` are anchored at the
+   * top left. Copied rather than chosen, because a cursor whose hotspot is half
+   * a sprite away from the client's points at a different tile than the one it
+   * is about to order.
+   */
+  function styleCursor(type) {
+    if (!cursorEl) return;
+    const url = type === null || type === undefined ? "" : clientPointerUrl(type);
+    if (!url) {
+      cursorEl.style.backgroundImage = "";
+      cursorEl.style.transform = "";
+      cursorEl.removeAttribute("data-pointer");
+      return;
+    }
+    cursorEl.style.backgroundImage = `url(${url})`;
+    cursorEl.style.transform = type > CLIENT_POINTER_MINI ? "translate(-50%, -50%)" : "";
+    cursorEl.dataset.pointer = String(type);
+  }
+
+  /** `PointerType.Mini`, the boundary the client centres its sprite above. */
+  const CLIENT_POINTER_MINI = 1;
+
   function drawCursor(at) {
     if (!at) {
       if (cursorEl) cursorEl.remove();
@@ -9377,6 +10173,12 @@
     const at = cursorPoint();
     const target = at ? document.elementFromPoint(at.x, at.y) : null;
     drawCursor(ourBox(target) ? at : null);
+    // AFTER `drawCursor`, which is the call that creates the element. Dressing
+    // it from inside `syncRadarReadout` -- where the hover it reflects is
+    // resolved -- meant the first move onto the picture found no element yet
+    // and left the cursor undressed until the second, so a quick in-and-out
+    // never showed what the click would have done.
+    syncRadarCursor();
     const tile = target && target.closest ? target.closest(".cdc-chord-slot") : null;
     // Whichever of the two overlays is up — they never are together, and both
     // draw the same tile under the same class.

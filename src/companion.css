@@ -311,6 +311,69 @@
   opacity: 0.75;
 }
 
+/* The radar is down, in the game's own terms -- no radar building, no power, or
+   an enemy Lightning Storm overhead.
+
+   The client covers its minimap with an animation at exactly this moment, so a
+   panel that merely went blank alongside it read as broken rather than as a
+   system going down. This is that cover, and it is deliberately NOT a picture
+   of a radar: there is nothing underneath it to cover, so an SHP of a dish
+   would be decoration with a download attached. Scanlines drifting over a dead
+   screen say the same thing and carry no map data at all -- the canvas under
+   this is `display: none` whatever the class says, which is the whole point.
+
+   Composited transforms only, on a panel that is already repainting a few
+   times a second. */
+.cdc-radar-dark .cdc-radar-stage {
+  background: #05070a;
+}
+
+.cdc-radar-dark .cdc-radar-stage::after {
+  content: "";
+  position: absolute;
+  inset: -50% 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 224, 0, 0.05) 0,
+    rgba(255, 224, 0, 0.05) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  animation: cdc-radar-scan 6s linear infinite;
+}
+
+.cdc-radar-dark .cdc-radar-empty {
+  color: #ffe000;
+  opacity: 0.85;
+  animation: cdc-radar-wipe 0.35s ease-out;
+}
+
+@keyframes cdc-radar-scan {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(25%);
+  }
+}
+
+@keyframes cdc-radar-wipe {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdc-radar-dark .cdc-radar-stage::after,
+  .cdc-radar-dark .cdc-radar-empty {
+    animation: none;
+  }
+}
+
 /* The in-game mirror of the appearance dials, in a drawer under the picture.
 
    Not `<input type=range>`: the client holds a pointer lock for the whole of a

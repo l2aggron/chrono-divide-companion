@@ -764,6 +764,33 @@
     return canvas;
   }
 
+  /**
+   * One frame of an SHP, on the file's own virtual canvas.
+   *
+   * Exported for the radar's minimap cursors, which need a single frame out of
+   * `mouse.shp` -- and `ImageUtils.convertShpToCanvas`, which the cameo path
+   * uses, cannot serve that: it lays EVERY frame of the file out in a row, and
+   * a pointer file carries hundreds. The intermediate canvas would be tens of
+   * thousands of pixels wide to keep one frame of forty.
+   *
+   * The frame is drawn at its own `x`/`y` onto a canvas the size of the SHP's
+   * virtual one, which is exactly what `convertShpToBitmap` does for the whole
+   * row. That is what makes two frames of one file line up with each other, so
+   * a cursor does not jump when the pointer type changes.
+   */
+  function frameCanvas(shp, frameNo, palette) {
+    if (!shp || !palette || !shp.numImages) return null;
+    const frame = Math.max(0, Math.min(frameNo | 0, shp.numImages - 1));
+    const image = shp.getImage(frame);
+    if (!image || !image.width || !image.height) return null;
+    const sprite = canvasFromIndexed(image.imageData, image.width, image.height, paletteLut(palette));
+    const sheet = document.createElement("canvas");
+    sheet.width = Math.max(1, shp.width);
+    sheet.height = Math.max(1, shp.height);
+    sheet.getContext("2d").drawImage(sprite, image.x || 0, image.y || 0);
+    return sheet;
+  }
+
   /** Map coords -> top-left of that cell's diamond, in pixels. Fractional coords are fine. */
   function cellOrigin(rx, ry, z, mapWidth) {
     const dx = rx - ry + mapWidth - 1;
@@ -3257,6 +3284,7 @@
     setFix,
     setLook,
     geometry,
+    frameCanvas,
     pickBuffer,
     oreCells,
     oreKindFor,

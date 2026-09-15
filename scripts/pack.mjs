@@ -79,6 +79,7 @@ function manifestPaths(manifest) {
   icons(manifest.action?.default_icon);
   if (manifest.action?.default_popup) paths.push(manifest.action.default_popup);
   if (manifest.background?.service_worker) paths.push(manifest.background.service_worker);
+  for (const js of manifest.background?.scripts || []) paths.push(js);
   if (manifest.options_ui?.page) paths.push(manifest.options_ui.page);
   for (const cs of manifest.content_scripts || []) {
     for (const js of cs.js || []) paths.push(js);
