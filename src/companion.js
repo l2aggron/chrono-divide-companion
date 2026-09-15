@@ -8758,7 +8758,16 @@
    */
   function applyKeyLock() {
     if (!nativeLock) {
-      keyLock = "this browser has no Keyboard API";
+      // Firefox: no Keyboard API, but maybe a lock the fullscreen request carried
+      // (`hookFullscreenLock`). Leaving fullscreen ends it on the browser's side.
+      if (!document.fullscreenElement) fullscreenLock = false;
+      keyLock = !state.hooks.fullscreenKeyboardLock
+        ? "this browser has no Keyboard API"
+        : !fullscreenLock
+          ? "not taken with this fullscreen"
+          : wantKeyLock()
+            ? "held"
+            : "taken with fullscreen, not in a match";
       return Promise.resolve();
     }
     const ours = wantKeyLock() ? ctrlKeysToHold() : [];
@@ -8789,10 +8798,59 @@
     applyKeyLock();
   }
 
+  /**
+   * Firefox's keyboard lock, which is not `navigator.keyboard` but an option of
+   * the fullscreen request itself: `requestFullscreen({ keyboardLock: "browser" })`,
+   * on by default since Firefox 151 (`dom.fullscreen.keyboard_lock.enabled`).
+   * While it holds, the shortcuts Firefox reserves — Ctrl+W, Ctrl+T, Ctrl+N —
+   * reach the page and can be cancelled; F11 stays the browser's, and Escape
+   * leaves fullscreen on a long press instead of a tap, which is what the
+   * client's own Escape lock buys it in Chrome.
+   *
+   * It is decided when fullscreen is entered and ends when it is left, so the
+   * client's own request is widened on its way out, the way `hookKeyboard`
+   * widens its `keyboard.lock`. Only the grid cancels a Ctrl+W, so outside it
+   * the key still closes the tab: the client calls `preventDefault` only on a
+   * key it has bound (see `KeyboardHandler#handleKeyDown` in cd-client-internals).
+   *
+   * The option is handed over as a getter: a browser that knows the option
+   * reads it and one that does not never does, so "held" is observed rather
+   * than assumed. A preference change applies from the next fullscreen entry.
+   */
+  let fullscreenLock = false;
+  function hookFullscreenLock() {
+    if (navigator.keyboard || typeof Element === "undefined") return;
+    const native = Element.prototype.requestFullscreen;
+    if (typeof native !== "function") return;
+    Element.prototype.requestFullscreen = function (options) {
+      if (state.prefs.grabTabKeys === false) return native.call(this, options);
+      let read = false;
+      const widened = { ...(options || {}) };
+      Object.defineProperty(widened, "keyboardLock", {
+        enumerable: true,
+        get: () => {
+          read = true;
+          return "browser";
+        },
+      });
+      const request = native.call(this, widened);
+      Promise.resolve(request).then(
+        () => {
+          fullscreenLock = read;
+          syncKeyLock();
+        },
+        (err) => note(`fullscreen was refused, so no keyboard lock came with it (${err && err.message})`, "warn")
+      );
+      return request;
+    };
+    state.hooks.fullscreenKeyboardLock = true;
+  }
+
   // Wrapped as early as this file runs, which is well before any fullscreen can
   // be entered — that needs a user gesture, and the client's own lock call comes
   // with it.
   hookKeyboard();
+  hookFullscreenLock();
 
   // The lock only bites in fullscreen, so entering and leaving it is when there
   // is something to do — and leaving it drops the lock on the browser's side,

@@ -23,6 +23,11 @@
  *   can only have come from `chrome.runtime.getManifest()` over that wire.
  * - A pref the page sends is written to `chrome.storage.local` and read back
  *   in the next config push.
+ * - The client's fullscreen request goes out with `keyboardLock: "browser"` and
+ *   Firefox reads it (Firefox 151+). Whether Ctrl+W then stays in the page is
+ *   not provable here: BiDi key input never reaches the browser's own shortcut
+ *   handling, so a driven Ctrl+W does not close a tab even with no lock
+ *   (measured 2026-09-15, Firefox 155).
  *
  * What it cannot reach: the options page and the background script. BiDi
  * refuses to navigate to `moz-extension://` (measured 2026-09-15, Firefox
@@ -43,7 +48,7 @@ const ORIGIN = "https://game.chronodivide.com/";
 const manifest = JSON.parse(readFileSync(join(root, "manifest.json"), "utf8"));
 
 /** How many assertions a complete run makes — see EXPECTED in drive-memory.mjs. */
-const EXPECTED = 8;
+const EXPECTED = 10;
 
 const STUB = `<!doctype html><html><head><title>stub</title></head>
 <body><div id="ra2web-root"></div></body></html>`;
@@ -109,7 +114,14 @@ async function main() {
     return required ? 1 : 0;
   }
 
-  const browser = await puppeteer.launch({ browser: "firefox", executablePath: firefox, headless: !headed });
+  const browser = await puppeteer.launch({
+    browser: "firefox",
+    executablePath: firefox,
+    headless: !headed,
+    // A driven page has no user gesture, and fullscreen needs one. This lifts
+    // only that; the keyboard-lock option is still Firefox's own to read.
+    extraPrefsFirefox: { "full-screen-api.allow-trusted-requests-only": false },
+  });
   try {
     const id = await browser.installExtension(root);
     eq("Firefox installs the extension under the manifest's gecko id", id, manifest.browser_specific_settings?.gecko?.id);
@@ -167,9 +179,40 @@ async function main() {
     );
     eq("a pref the page sends is stored and read back", echoed, nonce);
 
-    // The options page disables the keyboard-lock setting on exactly this.
-    // If Firefox ever grows the API, this fails, and that setting should come back.
-    eq("Firefox has no keyboard lock", await page.evaluate(() => typeof navigator.keyboard), "undefined");
+    // The Chrome path stands down on exactly this. If Firefox ever grows the
+    // Keyboard API, this fails, and the two paths need looking at together.
+    eq("Firefox has no Keyboard API", await page.evaluate(() => typeof navigator.keyboard), "undefined");
+
+    // The client's own fullscreen request, as the client makes it. Firefox reads
+    // the keyboardLock option the hook adds, which is the only way the status
+    // below can say "taken": a browser that ignores the option never reads it.
+    // Not in a match on a stub, so taken but not held for the grid.
+    const lock = await page.evaluate(async () => {
+      await document.getElementById("ra2web-root").requestFullscreen();
+      await new Promise((done) => setTimeout(done, 300));
+      return { fullscreen: !!document.fullscreenElement, status: window.__cdc.chords().keyboardLock };
+    });
+    check(
+      "Firefox takes the keyboard lock with the client's fullscreen request",
+      lock.fullscreen && lock.status.startsWith("taken with fullscreen, not in a match"),
+      JSON.stringify(lock)
+    );
+    // What the options page asks before it enables the setting.
+    eq(
+      "Firefox reads the fullscreen keyboardLock option, so the setting is enabled",
+      await page.evaluate(() => {
+        let read = false;
+        const probe = document.createElement("div").requestFullscreen({
+          get keyboardLock() {
+            read = true;
+            return "none";
+          },
+        });
+        probe.catch(() => {});
+        return read;
+      }),
+      true
+    );
 
     check("the stub boots with no page errors", errors.length === 0, errors.slice(0, 3).join(" | "));
   } finally {

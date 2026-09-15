@@ -1170,6 +1170,90 @@ check(
   lockRun(["client", "ours"], { grabTabKeys: false }).last.join(" ")
 );
 
+// --- Firefox: the lock is an option of the fullscreen request -----------------
+//
+// No `navigator.keyboard`; `requestFullscreen({ keyboardLock: "browser" })`
+// instead (Firefox 151). Run against a stub Element whose request reads the
+// option only when `knows` says the browser has it, so "held" has to come from
+// the read and not from the call having been made.
+const fxHarness = new Function(
+  "CHORD_TABLES",
+  "state",
+  "document",
+  "navigator",
+  "Element",
+  "GRID_KEYS",
+  "RESERVED_CODES",
+  "buildBindings",
+  "note",
+  `let keyLock = "not asked for";
+   let clientLock = { seen: false, all: false, codes: [] };
+   let nativeLock = null;
+   let nativeUnlock = null;
+   ${sliceFn("wantKeyLock")}
+   ${sliceFn("ctrlKeysToHold")}
+   ${sliceFn("applyKeyLock")}
+   ${sliceFn("syncKeyLock")}
+   let fullscreenLock = false;
+   ${sliceFn("hookFullscreenLock")}
+   hookFullscreenLock();
+   return { held: () => keyLock };`
+);
+
+async function fxRun({ prefs = { grabTabKeys: true }, knows = true, combatant = {}, clientOptions } = {}) {
+  const seen = [];
+  const doc = { fullscreenElement: null };
+  function Element() {}
+  Element.prototype.requestFullscreen = function (options) {
+    seen.push({ navigationUI: options && options.navigationUI, lock: knows ? options && options.keyboardLock : undefined });
+    doc.fullscreenElement = this;
+    return Promise.resolve();
+  };
+  const state = { prefs, combatant, hooks: {} };
+  const api = fxHarness(tables, state, doc, {}, Element, GRID_KEYS, RESERVED_CODES, () => new Map(), () => {});
+  await new Element().requestFullscreen(clientOptions);
+  await Promise.resolve();
+  return { seen, state, inFullscreen: api.held() };
+}
+
+{
+  const run = await fxRun({ clientOptions: { navigationUI: "hide" } });
+  check(
+    "Firefox lock — the client's request goes out with keyboardLock browser and its own options kept",
+    run.seen.length === 1 && run.seen[0].lock === "browser" && run.seen[0].navigationUI === "hide",
+    JSON.stringify(run.seen)
+  );
+  check("Firefox lock — held in a match once the browser has read the option", run.inFullscreen === "held", run.inFullscreen);
+  check("Firefox lock — the hook reports itself", run.state.hooks.fullscreenKeyboardLock === true);
+
+  const off = await fxRun({ prefs: { grabTabKeys: false } });
+  check(
+    "Firefox lock — with the preference off the request goes out untouched",
+    off.seen[0].lock === undefined && off.inFullscreen !== "held",
+    `${JSON.stringify(off.seen)} ${off.inFullscreen}`
+  );
+
+  const old = await fxRun({ knows: false });
+  check(
+    "Firefox lock — a browser that never reads the option is not reported held",
+    old.inFullscreen === "not taken with this fullscreen",
+    old.inFullscreen
+  );
+
+  const lobby = await fxRun({ combatant: null });
+  check(
+    "Firefox lock — taken outside a match, but not held for the grid there",
+    lobby.inFullscreen === "taken with fullscreen, not in a match",
+    lobby.inFullscreen
+  );
+}
+
+check(
+  "Firefox lock — Chrome keeps the Keyboard API path: the fullscreen hook stands down where navigator.keyboard exists",
+  /function hookFullscreenLock\(\) \{\s*if \(navigator\.keyboard \|\|/.test(companion) && /\n  hookFullscreenLock\(\);/.test(companion),
+  "hookFullscreenLock returns first when navigator.keyboard is there, and is installed"
+);
+
 check(
   "companion.js asks the browser for a lock in exactly one place, through the plan",
   /nativeLock = kb\.lock\.bind\(kb\)/.test(companion) &&

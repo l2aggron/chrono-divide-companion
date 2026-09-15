@@ -736,8 +736,11 @@ F11. The API is defined against the Fullscreen API's element, and F11 leaves
 that null. Without the lock the press is **left alone entirely** rather than
 queued into a closing tab — you would lose the order and the tab and see
 neither happen. It is a tick in *Overlay settings*, and `__cdc.chords()`
-reports whether the lock is held. Firefox has no keyboard lock, so there the
-tick is disabled and Ctrl+W and Ctrl+T stay the browser's.
+reports whether the lock is held. Firefox has no `navigator.keyboard`; from
+Firefox 151 the same tick adds `keyboardLock: "browser"` to the game's own
+fullscreen request instead, which frees Ctrl+W, Ctrl+T and Ctrl+N for the page
+until fullscreen is left. Only the open grid cancels them, so everywhere else
+Ctrl+W still closes the tab. Older Firefox has neither, and the tick is disabled.
 
 **Which codes it asks for are derived, not named.** Ctrl is *queue next* across
 the whole grid, whose second and fifth slots are `w` and `t`, so
@@ -2682,11 +2685,13 @@ want to undo minutes later.
 A temporary add-on is removed when Firefox closes. Its storage is kept, because
 the manifest sets a fixed add-on id.
 
-Firefox has no keyboard lock (`navigator.keyboard`). Because of this, in
-fullscreen the browser keeps its own shortcuts, for example Ctrl+W. A chord that
-uses Ctrl on one of those keys does not get to the game. The option **Hold the
-keys Ctrl needs against the browser in fullscreen** is disabled in Firefox. The memory readout
-also has less to show, because Firefox has no `performance.memory`.
+Firefox has no `navigator.keyboard`, but from **Firefox 151** it has a keyboard
+lock that comes with the game's fullscreen, and the option **Hold the keys Ctrl
+needs against the browser in fullscreen** uses it. Two differences from Chrome:
+a change to the option applies the next time the game enters fullscreen, and
+while the lock holds, Escape leaves fullscreen only on a long press. In Firefox
+128–150 the option is disabled, and Ctrl+W and Ctrl+T stay the browser's. The
+memory readout has less to show, because Firefox has no `performance.memory`.
 
 ## Diagnosing it
 

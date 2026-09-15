@@ -4,6 +4,21 @@ One section per public release, newest first. A version that is missing here
 was never published on its own: its changes are in the next section that is
 listed. The [README](README.md) describes the current build in full.
 
+## 1.28.0 — 2026-09-15
+
+**Firefox**
+
+- Queue next on the grid's `w` and `t` slots works in Firefox 151 or later.
+  The option **Hold the keys Ctrl needs against the browser in fullscreen** is
+  enabled there again: when the game goes fullscreen it takes Firefox's own
+  fullscreen keyboard lock, so Ctrl+W and Ctrl+T reach the grid instead of
+  closing the tab or opening a new one. Outside the open grid, Ctrl+W still
+  closes the tab.
+- In Firefox, a change to that option applies the next time the game enters
+  fullscreen, and while the lock holds, Escape leaves fullscreen only on a long
+  press.
+- In Firefox 128–150 the option stays disabled.
+
 ## 1.27.0 — 2026-09-15
 
 **Firefox**

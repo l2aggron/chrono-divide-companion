@@ -2270,12 +2270,27 @@
     setPrefs({ grabTabKeys: prefGrabTabKeysEl.checked });
   });
 
-  // Firefox has no keyboard lock, so there this box could only claim to do
-  // something. The page and the game tab share a browser, so asking here is
-  // asking the browser the game runs in.
-  if (typeof navigator !== "undefined" && !navigator.keyboard) {
-    prefGrabTabKeysEl.disabled = true;
-    prefGrabTabKeysEl.parentElement.title = "This browser has no keyboard lock, so Ctrl+W stays the browser's.";
+  // A browser with neither lock could only claim to do something here. Firefox
+  // has no `navigator.keyboard` but, from 151, a lock carried by the fullscreen
+  // request; a detached element's request reads its options and then rejects,
+  // so asking costs no fullscreen. The page and the game tab share a browser,
+  // so asking here is asking the browser the game runs in.
+  if (typeof navigator !== "undefined" && !navigator.keyboard && typeof Element !== "undefined") {
+    let read = false;
+    const probe = document.createElement("div").requestFullscreen?.({
+      get keyboardLock() {
+        read = true;
+        return "none";
+      },
+    });
+    // The rejection is the expected answer for a detached element; only the
+    // getter being read is the result.
+    Promise.resolve(probe).catch(() => {});
+    if (!read) {
+      prefGrabTabKeysEl.disabled = true;
+      prefGrabTabKeysEl.parentElement.title =
+        "This browser has no keyboard lock, so Ctrl+W stays the browser's. Firefox has one from version 151.";
+    }
   }
 
   // Takes effect on the next press either way — nothing is held open across it.
