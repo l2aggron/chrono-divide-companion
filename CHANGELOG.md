@@ -40,14 +40,54 @@ listed. The [README](README.md) describes the current build in full.
 
 ## 1.24.1 — 2026-08-31
 
-- Our own radar: the map render as a radar of its own, on a key.
-- The taunts on a key, as a grid under the cursor.
-- A replay can be re-run, and the report shows what the file alone cannot give:
-  power and brownouts, factory counts, and what a spy took.
+**The sidebar**
+
+- A key of yours collapses the right-hand panel to its power bar. The power bar
+  moves flush against the right edge, the game view widens into the freed
+  strip, and the camera pans to the map edge that it reveals. The game's own
+  in-game menu shows the panel again for as long as the menu is open.
+
+**Our own radar**
+
+- The map render as a radar of its own, on a key: terrain, ore, units, tech
+  buildings and the camera's rectangle as separate layers.
+- It hides what you have not scouted, behind your own shroud.
+- Clicks work as on the game's radar: an order, a camera move, and `Alt`+right
+  drops a beacon.
+- The bar under it shows your money.
+
+**Taunts**
+
+- The game's eight taunts as a grid under the cursor, on a key of yours.
+- The grid shows what each taunt says and whose it is.
+- Which taunt sits on which key is yours to set, for any of the nine countries
+  that have taunts.
+- The settings page plays the taunts back.
+
+**Replays**
+
+- Open a `.rpl` from your own disk. It is matched to its own match by the id in
+  its header.
+- The match can be re-run in a game tab that the extension opens and closes by
+  itself, also from the file alone when the hosts no longer serve the replay.
+  The report then shows what the file cannot give: power and the brownouts under
+  it, build speed and the factory count per queue, and what each spy took.
+- The charts are one column of full-width rows with one shared crosshair, in an
+  order you set by dragging.
 
 ## 1.4.0 — 2026-08-24
 
-- A mouse press binds wherever a key does, build orders included.
+- A mouse press binds wherever a key does, build orders included. Buttons 3 and
+  up, bare or with modifiers.
+- Game commands on our keys: a key of yours fires one of the client's own
+  commands. This is how a command that the client does not let you rebind (the
+  alliance screen on `Tab`) moves to another key.
+- The memory readout: what the tab holds, graphics memory included, with the
+  trend over the last quarter of an hour. It opens by itself when something is
+  wrong.
+- The default panel keys moved off the digits `1`, `2`, `5` and `7` to `Alt` and a
+  right-hand letter, which the game's own default key table leaves free. As before, you can bind
+  every panel to another key in the options page.
 - A chord grid offers only what you can build.
 
 ## 0.98.0 — 2026-08-23
