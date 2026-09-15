@@ -93,6 +93,9 @@ One line, and both stores cut it short — Chrome at 132 characters. This is 98:
 > storage. The only requests the extension makes are to Chrono Divide's own
 > servers, for your replays and your match list.
 >
+> **Source code, bug reports and ideas:** https://github.com/l2aggron/chrono-divide-companion
+> One person maintains this. A star or an issue there is what keeps it maintained and growing.
+>
 > Red Alert 2 and its assets belong to their owners.
 
 ## Single-purpose statement

@@ -111,6 +111,14 @@ An MV3 extension for Chrome, Edge and Firefox that adds pre-game information to 
   localStorage, so a second browser starts blank and there is nothing on disk to
   copy. One file carries both, next to the extension's own bindings.
 
+**If it is useful to you, [star the
+repository](https://github.com/l2aggron/chrono-divide-companion) and [open an
+issue](https://github.com/l2aggron/chrono-divide-companion/issues)** for a bug,
+a client update that broke something, or an idea. One person writes and
+maintains this, and stars and issues are the only way to know anyone uses it,
+which decides whether it keeps being maintained and extended. What makes an
+issue easy to act on is under [Feedback](#feedback).
+
 ## Contents
 
 **In a match**
@@ -142,6 +150,7 @@ An MV3 extension for Chrome, Edge and Firefox that adds pre-game information to 
 
 - [Install](#install)
 - [Diagnosing it](#diagnosing-it)
+- [Feedback](#feedback)
 - [Changelog](CHANGELOG.md)
 
 **Terms**
@@ -2725,6 +2734,23 @@ and a write that is never started look identical afterwards, and one of those
 is what left a map with a render and no card. The log is handed over *before*
 the run's tab is allowed to close, so a run that ended badly still has its
 narration.
+
+## Feedback
+
+One person writes and maintains this extension, and there are two ways to tell
+them it is worth continuing: a **star** on the [GitHub
+repository](https://github.com/l2aggron/chrono-divide-companion), and an
+**issue** in its [tracker](https://github.com/l2aggron/chrono-divide-companion/issues).
+Both take a minute and need nothing but a GitHub account. A star says the
+extension is in use. An issue says what to work on next.
+
+What makes an issue quick to act on:
+
+| kind | what to include |
+|---|---|
+| a bug | `__cdc.version`, the browser and its version, what you pressed, and what happened instead. Add the lines from the **Log** tab with *Problems only* ticked. See [Diagnosing it](#diagnosing-it) |
+| the client changed | the client version and the `__cdc.probe()` rows that no longer hold. The hooks read the client's internals, which change without notice (see [Compatibility](#compatibility)), and this report is what gets a fix out |
+| an idea | what you want to do in a match, and what stops you now, rather than how the extension should do it |
 
 ## Not affiliated, and what is whose
 
