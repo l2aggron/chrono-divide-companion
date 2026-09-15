@@ -9,9 +9,9 @@ listed. The [README](README.md) describes the current build in full.
 **Firefox**
 
 - Queue next on the grid's `w` and `t` slots works in Firefox 151 or later.
-  The option **Hold the keys Ctrl needs against the browser in fullscreen** is
-  enabled there again: when the game goes fullscreen it takes Firefox's own
-  fullscreen keyboard lock, so Ctrl+W and Ctrl+T reach the grid instead of
+  The option **Hold the keys Ctrl needs against the browser in fullscreen**,
+  disabled in Firefox in 1.27.0, now works there: when the game goes fullscreen
+  it takes Firefox's own fullscreen keyboard lock, so Ctrl+W and Ctrl+T reach the grid instead of
   closing the tab or opening a new one. Outside the open grid, Ctrl+W still
   closes the tab.
 - In Firefox, a change to that option applies the next time the game enters
@@ -28,9 +28,11 @@ listed. The [README](README.md) describes the current build in full.
   a background script for Firefox) and a fixed add-on id, so storage survives
   when a temporary add-on is loaded again. The [README](README.md#install) has
   the install steps.
-- Firefox has no keyboard lock. The option **Hold the keys Ctrl needs against
-  the browser in fullscreen** is disabled there, so it does not claim to do
-  something it cannot do. In Firefox, Ctrl+W and Ctrl+T stay the browser's keys.
+- Firefox has no `navigator.keyboard`, the keyboard lock this version uses. The
+  option **Hold the keys Ctrl needs against the browser in fullscreen** is
+  therefore disabled in Firefox, and there Ctrl+W and Ctrl+T stay the browser's
+  keys. (Firefox 151 has a keyboard lock of its own, requested with fullscreen;
+  1.28.0 uses it.)
 - The memory readout shows less in Firefox, because Firefox has no
   `performance.memory`.
 - The minimum Chrome/Edge version is now 121 (it was 111).
